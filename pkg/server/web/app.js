@@ -21,7 +21,8 @@ let scale = 1.0;
 let panX = 0;
 let panY = 0;
 let isPanning = false;
-let hasDragged = false;
+let isDraggingStage = false;
+let mouseDownPos = null;
 let startPanMouseX = 0;
 let startPanMouseY = 0;
 let startPanStageX = 0;
@@ -247,8 +248,12 @@ function renderPaletteSwatches(colors) {
     container.appendChild(swatch);
   });
 
-  if (!activeColor && colors.length > 0) {
-    setActiveColor(colors[0]);
+  // Ensure active color matches a valid palette color
+  if (colors.length > 0) {
+    const hasActive = colors.some(c => c.toLowerCase() === activeColor.toLowerCase());
+    if (!hasActive) {
+      setActiveColor(colors[0]);
+    }
   }
 }
 
@@ -259,12 +264,17 @@ function setActiveColor(hex) {
     swatchEl.style.backgroundColor = hex;
   }
   document.querySelectorAll('.swatch').forEach(el => {
-    if (el.title.includes(hex)) {
+    if (el.title.toLowerCase().includes(hex.toLowerCase())) {
       el.classList.add('selected');
     } else {
       el.classList.remove('selected');
     }
   });
+
+  const hudHint = document.getElementById('hud-tool-hint');
+  if (hudHint && activeTool === 'recolor') {
+    hudHint.textContent = `Modo: Cubo de Pintura (haz clic en un segmento para aplicar ${activeColor})`;
+  }
 }
 
 // Pipeline Dispatch via WebSocket for live parameter changes
@@ -292,6 +302,11 @@ function triggerPipeline() {
 function setActiveTool(tool) {
   activeTool = tool;
   mergeSource = null;
+
+  // Auto switch from orig to vec so the user immediately sees live edits
+  if (tool !== 'pan' && viewMode === 'orig') {
+    setViewMode('vec');
+  }
 
   ['pan', 'recolor', 'merge', 'erase'].forEach(t => {
     const btn = document.getElementById(`tool-${t}`);
@@ -323,12 +338,14 @@ function setActiveTool(tool) {
 }
 
 function handleStageClick(e) {
-  if (activeTool === 'pan' || isPanning || hasDragged) {
+  if (activeTool === 'pan') {
     return;
   }
 
   const pt = getImageCoordinates(e);
-  if (!pt) return;
+  if (!pt) {
+    return;
+  }
 
   hideError();
   showClickIndicator(pt.x, pt.y);
@@ -376,6 +393,7 @@ function handleStageClick(e) {
 function showClickIndicator(x, y) {
   const stage = document.getElementById('viewport-stage');
   if (!stage) return;
+
   const dot = document.createElement('div');
   dot.style.position = 'absolute';
   dot.style.left = `${x}px`;
@@ -393,7 +411,7 @@ function showClickIndicator(x, y) {
   stage.appendChild(dot);
 
   requestAnimationFrame(() => {
-    dot.style.transform = 'translate(-50%, -50%) scale(2.8)';
+    dot.style.transform = 'translate(-50%, -50%) scale(3)';
     dot.style.opacity = '0';
   });
   setTimeout(() => dot.remove(), 400);
@@ -523,7 +541,6 @@ function getImageCoordinates(e) {
   if (!stage) return null;
 
   const rect = stage.getBoundingClientRect();
-  // rect.left and rect.top mark the exact screen pixel location of (0, 0)
   const relX = e.clientX - rect.left;
   const relY = e.clientY - rect.top;
 
@@ -562,11 +579,16 @@ function setupViewportInteractions() {
     updateStageTransform();
   }, { passive: false });
 
-  // Pan Mouse Events
-  previewBox.addEventListener('mousedown', (e) => {
+  // Unified Pointerdown on PreviewBox
+  previewBox.addEventListener('pointerdown', (e) => {
+    if (e.button === 2) return; // Ignore right clicks
+
+    mouseDownPos = { x: e.clientX, y: e.clientY };
+    isDraggingStage = false;
+
+    // Pan starts if tool is pan, or middle mouse, or spacebar is held
     if (activeTool === 'pan' || isSpacePressed || e.button === 1) {
       isPanning = true;
-      hasDragged = false;
       startPanMouseX = e.clientX;
       startPanMouseY = e.clientY;
       startPanStageX = panX;
@@ -576,15 +598,17 @@ function setupViewportInteractions() {
     }
   });
 
-  window.addEventListener('mousemove', (e) => {
-    if (isPanning) {
-      const dx = e.clientX - startPanMouseX;
-      const dy = e.clientY - startPanMouseY;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-        hasDragged = true;
+  window.addEventListener('pointermove', (e) => {
+    if (mouseDownPos) {
+      const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
+      if (dist > 4) {
+        isDraggingStage = true;
       }
-      panX = startPanStageX + dx;
-      panY = startPanStageY + dy;
+    }
+
+    if (isPanning) {
+      panX = startPanStageX + (e.clientX - startPanMouseX);
+      panY = startPanStageY + (e.clientY - startPanMouseY);
       updateStageTransform();
       return;
     }
@@ -598,16 +622,29 @@ function setupViewportInteractions() {
     }
   });
 
-  window.addEventListener('mouseup', () => {
-    if (isPanning) {
-      isPanning = false;
-      if (stage) {
-        stage.className = `viewport-stage tool-${activeTool}`;
-      }
-    }
-  });
+  window.addEventListener('pointerup', (e) => {
+    const wasDragging = isDraggingStage;
+    const wasPanning = isPanning;
 
-  stage.addEventListener('click', (e) => {
+    isPanning = false;
+    isDraggingStage = false;
+    mouseDownPos = null;
+
+    if (stage) {
+      stage.className = `viewport-stage tool-${activeTool}`;
+    }
+
+    // If user dragged to pan, or was using Pan tool, do not trigger edit click
+    if (wasDragging || wasPanning || activeTool === 'pan') {
+      return;
+    }
+
+    // Only left button triggers an edit tool
+    if (e.button !== 0) {
+      return;
+    }
+
+    // Clean click on edit tool: trigger action!
     handleStageClick(e);
   });
 
