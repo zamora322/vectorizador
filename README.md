@@ -17,6 +17,7 @@
 - [Arquitectura Algorítmica (Inspiración en Vector Magic)](#-arquitectura-algorítmica-inspiración-en-vector-magic)
 - [Instalación y Requisitos](#-instalación-y-requisitos)
 - [Modo de Uso: Asistente Web (Studio Wizard)](#-modo-asistente-web-studio-wizard)
+- [Suite de Edición Interactiva de Segmentos (Vector Magic Style)](#-suite-de-edición-interactiva-de-segmentos-vector-magic-style)
 - [Modo de Uso: Línea de Comandos (CLI)](#-modo-línea-de-comandos-cli)
 - [Endpoints de la API HTTP y WebSocket](#-endpoints-de-la-api-http-y-websocket)
 - [Batería de Pruebas y Rendimiento](#-batería-de-pruebas-y-rendimiento)
@@ -34,6 +35,8 @@
 - **Detección de Esquinas Vivas:** Preservación de vértices con ángulo agudo ($\theta \ge 60^\circ$) combinada con suavizado Laplaciano de alta fidelidad sub-píxel.
 - **Ajuste de Curvas Bézier por Mínimos Cuadrados:** Implementación del algoritmo de Schneider con subdivisión recursiva de segmentos según tolerancia de curvatura.
 - **Generación SVG con Trazo Anti-Seam:** Emisión de polígonos agrupados por capa de color con compensación de renderizado `stroke-width="0.09375"` idéntica a la utilizada por Vector Magic para evitar artefactos de rasterizado.
+- **Suite de Edición Interactiva en Vivo:** Herramientas flotantes de retoque sobre el canvas (Cubo de Pintura, Fusión, Borrador a Transparente, Zoom centrado y Paneo) con historial de **Deshacer y Rehacer** (`Ctrl+Z`, `Ctrl+Y`) en memoria.
+- **Mapeo Sub-Píxel 1:1 Matemáticamente Exacto:** Proyección sin distorsión de coordenadas del cursor a la resolución nativa de la imagen, sin importar el nivel de zoom o tamaño del navegador.
 - **Doble Interfaz:**
   - **CLI:** Ideal para automatización en scripts y procesamiento por lotes en servidores.
   - **Asistente Web (Studio):** Interfaz gráfica interactiva paso a paso en 4 etapas, construida en HTML5/CSS/Vanilla JS, totalmente embebida en el binario (`//go:embed`) sin requerir `npm` ni Node.js.
@@ -60,12 +63,12 @@ flowchart LR
 | Paquete Go | Responsabilidad | Correspondiente en Vector Magic (`vmde.exe`) |
 | :--- | :--- | :--- |
 | [`pkg/palette`](pkg/palette) | Conversión sRGB $\leftrightarrow$ Lab, $\Delta E$ y K-Means++ | `PixelSegmentation::generatePaletteFromSegments`, `ColorHistogram` |
-| [`pkg/segmentation`](pkg/segmentation) | Conectividad 4-conexa, absorción de ruido y rechazo de bordes AA | `segmentation.cpp`, `SubPixelSegmenter::flagShadowSegments` |
+| [`pkg/segmentation`](pkg/segmentation) | Conectividad 4-conexa, absorción de ruido, rechazo AA y mutaciones interactivas | `segmentation.cpp`, `SubPixelSegmenter::flagShadowSegments` |
 | [`pkg/topology`](pkg/topology) | Red celular planar con aristas orientadas herméticas | `boundarytracer.cpp`, `data.cpp` |
 | [`pkg/smoothing`](pkg/smoothing) | Esquinas vivas y relajación de contornos | `contoursmoother.cpp` (`findSqrtPriorPotential`) |
 | [`pkg/bezier`](pkg/bezier) | Subdivisión recursiva y ajuste Bézier cúbico | `bezierfitter.cpp`, LAPACK `dgesv_` |
 | [`pkg/svg`](pkg/svg) | Bucles SVG agrupados con trazo `0.09375pt` | Rutinas internas SVG de Vector Magic |
-| [`pkg/server`](pkg/server) | Servidor HTTP multipart y WebSockets con assets embebidos | Interfaz Wizard interactiva |
+| [`pkg/server`](pkg/server) | Servidor HTTP multipart, WebSockets, pila Undo/Redo y assets embebidos | Interfaz Wizard interactiva y sesión de edición |
 | [`cmd/vectorizador`](cmd/vectorizador) | Punto de entrada binario dual (CLI y `serve`) | CLI y GUI launcher |
 
 ---
@@ -115,7 +118,29 @@ vectorizador serve -port 8080
    * **Paso 2: Segmentación:** Activa o desactiva el rechazo de anti-aliasing y calibra el umbral de tamaño mínimo de segmento para fusionar ruido.
    * **Paso 3: Suavizado & Curvas:** Modifica el nivel de suavizado Laplaciano, preserva o libera esquinas vivas ($\theta \ge 60^\circ$) y ajusta la tolerancia de nodos Bézier.
    * **Paso 4: Exportación:** Activa la compensación *anti-seam*, visualiza el SVG renderizado con selector de capas o fondo transparente, y descarga el archivo SVG o cópialo al portapapeles.
-4. **Notificaciones sin Espera Infinita:** El sistema cuenta con difusión de estados por WebSocket (*K-Means*, *Segmentación*, *Topología*, *Bézier*, *SVG*) y un banner superior de errores que alerta de cualquier eventualidad de forma inmediata sin bloquear la interfaz.
+4. **Notificaciones sin Espera Infinita:** Difusión de etapas por WebSocket (*K-Means*, *Segmentación*, *Topología*, *Bézier*, *SVG*) y un banner superior de errores que alerta de cualquier eventualidad de forma inmediata sin bloquear la interfaz.
+
+---
+
+## 🛠️ Suite de Edición Interactiva de Segmentos (Vector Magic Style)
+
+Durante la visualización de la imagen, dispones de una **barra flotante de herramientas** sobre el visor:
+
+| Herramienta | Icono / Atajo | Acción |
+| :--- | :---: | :--- |
+| **Mover (Pan)** | ✋ / Barra Espaciadora | Arrastra el lienzo para desplazarte con libertad. |
+| **Cubo de Pintura** | 🪣 | Selecciona un color de la paleta izquierda y haz clic sobre cualquier segmento para reasignarle el color al instante. |
+| **Fusión de Segmentos** | 🔗 | Haz clic en el primer segmento y luego en el contiguo para unificarlos en una sola región continua. |
+| **Borrador a Transparente** | 🧹 | Haz clic en cualquier segmento para convertirlo en fondo transparente (patrón de ajedrezado). |
+| **Deshacer** | ↶ / `Ctrl+Z` | Revierte la última acción de edición utilizando el historial en RAM del motor en Go. |
+| **Rehacer** | ↷ / `Ctrl+Y` | Re-aplica la acción deshecha. |
+| **Zoom Continuo** | Rueda del ratón / `+`, `−`, `⟲` | Zoom centrado exactamente en la posición del puntero del ratón (de 5% a 3000%). |
+
+### Mapeo de Coordenadas Sub-Píxel 1:1
+* La interfaz utiliza un escenario absoluto sin distorsión por *letterboxing* o escalado CSS.
+* Cada clic en pantalla se traduce a la coordenada entera exacta en el espacio nativo de la imagen raster $(x_{nat}, y_{nat}) = \left\lfloor\frac{x_{rel}}{\text{scale}}\right\rfloor$.
+* Un indicador visual tipo *ripple* confirma de inmediato la coordenada precisa donde impactó el clic.
+* El motor en Go re-vectoriza la topología afectada en **menos de 30 ms** sin re-ejecutar el costoso agrupamiento K-Means.
 
 ---
 
@@ -170,7 +195,8 @@ El servidor integrado expone una API REST y WebSocket ligera:
 | `GET` | `/api/samples` | Devuelve una lista JSON con las imágenes presentes en `testdata/`. |
 | `POST` | `/api/samples/load?name=<archivo>` | Carga y procesa directamente una muestra del disco sin retransmitir base64. |
 | `GET` | `/api/samples/<archivo>` | Sirve la imagen original de muestra en formato PNG. |
-| `WS` | `/ws` | Canal WebSocket bidireccional para recibir eventos de progreso en tiempo real y re-procesar parámetros instantáneamente con `{ action: "reprocess", config: {...} }`. |
+| `POST` | `/api/segments/edit` | Endpoint REST para mutaciones directas de segmentos (`recolor`, `merge`, `erase`, `undo`, `redo`). |
+| `WS` | `/ws` | Canal WebSocket bidireccional para eventos de progreso en tiempo real, re-procesamiento de sliders y mutación de segmentos en vivo. |
 
 ---
 
@@ -212,8 +238,10 @@ vectorizador/
 │   │   ├── color.go
 │   │   ├── palette.go
 │   │   └── palette_test.go
-│   ├── segmentation/          # Componentes conexas Union-Find y rechazo AA
+│   ├── segmentation/          # Componentes conexas Union-Find, rechazo AA y edición
 │   │   ├── antialiasing.go
+│   │   ├── edit.go            # Recolor, Merge, Erase y Clone atómicos
+│   │   ├── edit_test.go       # Pruebas unitarias de edición
 │   │   ├── segment.go
 │   │   └── segment_test.go
 │   ├── server/                # Servidor HTTP/WebSocket y assets web embebidos

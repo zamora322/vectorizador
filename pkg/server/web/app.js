@@ -5,7 +5,7 @@ let viewMode = 'vec'; // 'orig', 'seg', 'vec'
 let lastSVG = "";
 let lastSegPNG = "";
 
-// Image Dimensions for Coordinate Mapping
+// Image Natural Dimensions for Exact Coordinate Mapping
 let imgNaturalWidth = 0;
 let imgNaturalHeight = 0;
 
@@ -21,6 +21,7 @@ let scale = 1.0;
 let panX = 0;
 let panY = 0;
 let isPanning = false;
+let hasDragged = false;
 let startPanMouseX = 0;
 let startPanMouseY = 0;
 let startPanStageX = 0;
@@ -238,7 +239,7 @@ function renderPaletteSwatches(colors) {
     const swatch = document.createElement('div');
     swatch.className = 'swatch';
     swatch.style.backgroundColor = hex;
-    swatch.title = `Seleccionar color ${hex} para edición`;
+    swatch.title = `Seleccionar color ${hex} para cubo de pintura`;
     if (hex.toLowerCase() === activeColor.toLowerCase()) {
       swatch.classList.add('selected');
     }
@@ -306,31 +307,34 @@ function setActiveTool(tool) {
   const stage = document.getElementById('viewport-stage');
   const hudHint = document.getElementById('hud-tool-hint');
 
+  if (stage) {
+    stage.className = `viewport-stage tool-${tool}`;
+  }
+
   if (tool === 'pan') {
-    if (stage) stage.style.cursor = 'grab';
     if (hudHint) hudHint.textContent = 'Modo: Navegación (arrastra para mover lienzo, rueda para zoom)';
   } else if (tool === 'recolor') {
-    if (stage) stage.style.cursor = 'crosshair';
     if (hudHint) hudHint.textContent = `Modo: Cubo de Pintura (haz clic en un segmento para aplicar ${activeColor})`;
   } else if (tool === 'merge') {
-    if (stage) stage.style.cursor = 'crosshair';
     if (hudHint) hudHint.textContent = 'Modo: Fusión (haz clic en el primer segmento que deseas unir)';
   } else if (tool === 'erase') {
-    if (stage) stage.style.cursor = 'crosshair';
     if (hudHint) hudHint.textContent = 'Modo: Borrador a Transparente (haz clic en un segmento para eliminarlo)';
   }
 }
 
 function handleStageClick(e) {
-  if (activeTool === 'pan' || isPanning) return;
+  if (activeTool === 'pan' || isPanning || hasDragged) {
+    return;
+  }
 
   const pt = getImageCoordinates(e);
   if (!pt) return;
 
   hideError();
+  showClickIndicator(pt.x, pt.y);
 
   if (activeTool === 'recolor') {
-    showProgress('Recoloreando segmento...', 30);
+    showProgress(`Recoloreando segmento en (${pt.x}, ${pt.y})...`, 30);
     sendSegmentAction({
       action: 'edit',
       tool: 'recolor',
@@ -339,7 +343,7 @@ function handleStageClick(e) {
       color: activeColor
     });
   } else if (activeTool === 'erase') {
-    showProgress('Borrando segmento a transparente...', 30);
+    showProgress(`Borrando segmento en (${pt.x}, ${pt.y})...`, 30);
     sendSegmentAction({
       action: 'edit',
       tool: 'erase',
@@ -354,7 +358,7 @@ function handleStageClick(e) {
         hudHint.textContent = `Primer segmento fijado en (${pt.x}, ${pt.y}). Haz clic en el segundo segmento contiguo para fusionar.`;
       }
     } else {
-      showProgress('Fusionando segmentos...', 30);
+      showProgress(`Fusionando segmentos (${mergeSource.x},${mergeSource.y}) y (${pt.x},${pt.y})...`, 30);
       sendSegmentAction({
         action: 'edit',
         tool: 'merge',
@@ -367,6 +371,32 @@ function handleStageClick(e) {
       setActiveTool('merge');
     }
   }
+}
+
+function showClickIndicator(x, y) {
+  const stage = document.getElementById('viewport-stage');
+  if (!stage) return;
+  const dot = document.createElement('div');
+  dot.style.position = 'absolute';
+  dot.style.left = `${x}px`;
+  dot.style.top = `${y}px`;
+  dot.style.width = '10px';
+  dot.style.height = '10px';
+  dot.style.borderRadius = '50%';
+  dot.style.backgroundColor = activeColor || '#3b82f6';
+  dot.style.border = '2px solid #ffffff';
+  dot.style.boxShadow = '0 0 10px rgba(255,255,255,0.9)';
+  dot.style.pointerEvents = 'none';
+  dot.style.transform = 'translate(-50%, -50%) scale(1)';
+  dot.style.zIndex = '9999';
+  dot.style.transition = 'all 0.35s ease-out';
+  stage.appendChild(dot);
+
+  requestAnimationFrame(() => {
+    dot.style.transform = 'translate(-50%, -50%) scale(2.8)';
+    dot.style.opacity = '0';
+  });
+  setTimeout(() => dot.remove(), 400);
 }
 
 function sendSegmentAction(payload) {
@@ -419,6 +449,16 @@ function triggerRedo() {
 }
 
 // Zoom & Pan Viewport Logic
+function updateStageDimensions(w, h) {
+  imgNaturalWidth = w;
+  imgNaturalHeight = h;
+  const stage = document.getElementById('viewport-stage');
+  if (stage && w > 0 && h > 0) {
+    stage.style.width = `${w}px`;
+    stage.style.height = `${h}px`;
+  }
+}
+
 function updateStageTransform() {
   const stage = document.getElementById('viewport-stage');
   const zoomText = document.getElementById('zoom-level');
@@ -430,15 +470,43 @@ function updateStageTransform() {
   }
 }
 
+function fitStageToScreen() {
+  if (!imgNaturalWidth || !imgNaturalHeight) return;
+  const container = document.getElementById('preview-box');
+  if (!container) return;
+
+  updateStageDimensions(imgNaturalWidth, imgNaturalHeight);
+
+  const cw = container.clientWidth || 800;
+  const ch = container.clientHeight || 600;
+
+  const availW = Math.max(cw - 64, 50);
+  const availH = Math.max(ch - 64, 50);
+
+  let fitScale = Math.min(availW / imgNaturalWidth, availH / imgNaturalHeight);
+  if (imgNaturalWidth < 300 && imgNaturalHeight < 300) {
+    // Zoom in on small icons for easy inspection
+    fitScale = Math.min(Math.max(fitScale, 1.0), 3.0);
+  } else {
+    fitScale = Math.min(fitScale, 1.0);
+  }
+
+  scale = fitScale;
+  panX = Math.round((cw - imgNaturalWidth * scale) / 2);
+  panY = Math.round((ch - imgNaturalHeight * scale) / 2);
+
+  updateStageTransform();
+}
+
 function zoomStep(factor) {
   const previewBox = document.getElementById('preview-box');
-  if (!previewBox) return;
+  if (!previewBox || !imgNaturalWidth) return;
 
   const rect = previewBox.getBoundingClientRect();
   const centerX = rect.width / 2;
   const centerY = rect.height / 2;
 
-  const newScale = Math.min(Math.max(0.1, scale * factor), 25.0);
+  const newScale = Math.min(Math.max(0.05, scale * factor), 30.0);
   panX = centerX - (centerX - panX) * (newScale / scale);
   panY = centerY - (centerY - panY) * (newScale / scale);
   scale = newScale;
@@ -446,10 +514,7 @@ function zoomStep(factor) {
 }
 
 function resetZoom() {
-  scale = 1.0;
-  panX = 0;
-  panY = 0;
-  updateStageTransform();
+  fitStageToScreen();
 }
 
 function getImageCoordinates(e) {
@@ -458,11 +523,12 @@ function getImageCoordinates(e) {
   if (!stage) return null;
 
   const rect = stage.getBoundingClientRect();
-  const screenX = e.clientX - rect.left;
-  const screenY = e.clientY - rect.top;
+  // rect.left and rect.top mark the exact screen pixel location of (0, 0)
+  const relX = e.clientX - rect.left;
+  const relY = e.clientY - rect.top;
 
-  const x = Math.floor(screenX / scale);
-  const y = Math.floor(screenY / scale);
+  const x = Math.floor(relX / scale);
+  const y = Math.floor(relY / scale);
 
   if (x < 0 || x >= imgNaturalWidth || y < 0 || y >= imgNaturalHeight) {
     return null;
@@ -481,12 +547,14 @@ function setupViewportInteractions() {
   // Wheel Zoom centered at cursor
   previewBox.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (!imgNaturalWidth) return;
+
     const rect = previewBox.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
     const delta = e.deltaY < 0 ? 1.15 : 0.87;
-    const newScale = Math.min(Math.max(0.1, scale * delta), 25.0);
+    const newScale = Math.min(Math.max(0.05, scale * delta), 30.0);
 
     panX = mouseX - (mouseX - panX) * (newScale / scale);
     panY = mouseY - (mouseY - panY) * (newScale / scale);
@@ -498,6 +566,7 @@ function setupViewportInteractions() {
   previewBox.addEventListener('mousedown', (e) => {
     if (activeTool === 'pan' || isSpacePressed || e.button === 1) {
       isPanning = true;
+      hasDragged = false;
       startPanMouseX = e.clientX;
       startPanMouseY = e.clientY;
       startPanStageX = panX;
@@ -509,8 +578,13 @@ function setupViewportInteractions() {
 
   window.addEventListener('mousemove', (e) => {
     if (isPanning) {
-      panX = startPanStageX + (e.clientX - startPanMouseX);
-      panY = startPanStageY + (e.clientY - startPanMouseY);
+      const dx = e.clientX - startPanMouseX;
+      const dy = e.clientY - startPanMouseY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        hasDragged = true;
+      }
+      panX = startPanStageX + dx;
+      panY = startPanStageY + dy;
       updateStageTransform();
       return;
     }
@@ -519,7 +593,7 @@ function setupViewportInteractions() {
     if (hudCoords) {
       const pt = getImageCoordinates(e);
       if (pt) {
-        hudCoords.textContent = `X: ${pt.x}, Y: ${pt.y}`;
+        hudCoords.textContent = `X: ${pt.x}, Y: ${pt.y} (Píxel nativo)`;
       }
     }
   });
@@ -528,7 +602,7 @@ function setupViewportInteractions() {
     if (isPanning) {
       isPanning = false;
       if (stage) {
-        stage.style.cursor = activeTool === 'pan' ? 'grab' : 'crosshair';
+        stage.className = `viewport-stage tool-${activeTool}`;
       }
     }
   });
@@ -562,8 +636,14 @@ function setupViewportInteractions() {
     if (e.code === 'Space') {
       isSpacePressed = false;
       if (stage) {
-        stage.style.cursor = activeTool === 'pan' ? 'grab' : 'crosshair';
+        stage.className = `viewport-stage tool-${activeTool}`;
       }
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (imgNaturalWidth > 0) {
+      fitStageToScreen();
     }
   });
 }
@@ -579,12 +659,10 @@ function handleFileSelect(file) {
   const localUrl = URL.createObjectURL(file);
   currentImageBase64 = localUrl;
 
-  // Measure natural dimensions
   const tempImg = new Image();
   tempImg.onload = () => {
-    imgNaturalWidth = tempImg.naturalWidth;
-    imgNaturalHeight = tempImg.naturalHeight;
-    resetZoom();
+    updateStageDimensions(tempImg.naturalWidth, tempImg.naturalHeight);
+    fitStageToScreen();
   };
   tempImg.src = localUrl;
 
@@ -615,8 +693,8 @@ function handleFileSelect(file) {
     return data;
   })
   .then(data => {
-    imgNaturalWidth = data.width || imgNaturalWidth;
-    imgNaturalHeight = data.height || imgNaturalHeight;
+    updateStageDimensions(data.width, data.height);
+    fitStageToScreen();
     lastSegPNG = data.segmentation;
     lastSVG = data.svg;
     canUndo = false;
@@ -640,9 +718,8 @@ function loadSample(name) {
 
   const tempImg = new Image();
   tempImg.onload = () => {
-    imgNaturalWidth = tempImg.naturalWidth;
-    imgNaturalHeight = tempImg.naturalHeight;
-    resetZoom();
+    updateStageDimensions(tempImg.naturalWidth, tempImg.naturalHeight);
+    fitStageToScreen();
   };
   tempImg.src = currentImageBase64;
 
@@ -666,8 +743,8 @@ function loadSample(name) {
     return data;
   })
   .then(data => {
-    imgNaturalWidth = data.width || imgNaturalWidth;
-    imgNaturalHeight = data.height || imgNaturalHeight;
+    updateStageDimensions(data.width, data.height);
+    fitStageToScreen();
     lastSegPNG = data.segmentation;
     lastSVG = data.svg;
     canUndo = false;
