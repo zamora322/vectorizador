@@ -9,10 +9,11 @@ import (
 
 // Segment represents a contiguous region sharing the same color.
 type Segment struct {
-	ID         int
-	ColorIndex int
-	Color      palette.RGB
-	PixelCount int
+	ID          int
+	ColorIndex  int
+	Color       palette.RGB
+	PixelCount  int
+	Transparent bool
 }
 
 // SegmentMap stores the spatial partitioning of pixels into segments.
@@ -232,12 +233,22 @@ func (sm *SegmentMap) ToRGBA() *image.RGBA {
 			if !ok {
 				continue
 			}
-			out.Set(x, y, color.RGBA{
-				R: seg.Color.R,
-				G: seg.Color.G,
-				B: seg.Color.B,
-				A: 255,
-			})
+			if seg.Transparent {
+				// Checkerboard pattern for transparent regions
+				isEven := ((x/8)+(y/8))%2 == 0
+				var v uint8 = 200
+				if isEven {
+					v = 240
+				}
+				out.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+			} else {
+				out.Set(x, y, color.RGBA{
+					R: seg.Color.R,
+					G: seg.Color.G,
+					B: seg.Color.B,
+					A: 255,
+				})
+			}
 		}
 	}
 	return out

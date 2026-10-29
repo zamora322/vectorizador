@@ -94,3 +94,29 @@ func Vectorize(img image.Image, cfg Config, progress ProgressFunc) (*Result, err
 		SVG:        svgOutput,
 	}, nil
 }
+
+// VectorizeFromSegmentMap re-traces topology and generates SVG from an existing SegmentMap
+// without re-running color quantization or initial pixel segmentation.
+func VectorizeFromSegmentMap(sm *segmentation.SegmentMap, cfg Config) (*Result, error) {
+	// 1. Topology & Boundary Tracing
+	graph := topology.TraceTopology(sm)
+
+	// 2. Path Smoothing & Corner Detection
+	smoothing.SmoothGraph(graph, cfg.Smoothness, cfg.DetectCorners)
+
+	// 3. Bézier Fitting & SVG Generation
+	svgOpts := svg.SVGOptions{
+		AntiSeamStroke:        cfg.AntiSeamStroke,
+		TransparentBackground: cfg.TransparentBackground,
+		GroupLayersByColor:    true,
+		CurveTolerance:        cfg.CurveTolerance,
+	}
+	svgOutput := svg.GenerateSVG(graph, sm, svgOpts)
+
+	return &Result{
+		Palette:    sm.Palette,
+		SegmentMap: sm,
+		Graph:      graph,
+		SVG:        svgOutput,
+	}, nil
+}

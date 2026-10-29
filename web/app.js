@@ -5,6 +5,28 @@ let viewMode = 'vec'; // 'orig', 'seg', 'vec'
 let lastSVG = "";
 let lastSegPNG = "";
 
+// Image Dimensions for Coordinate Mapping
+let imgNaturalWidth = 0;
+let imgNaturalHeight = 0;
+
+// Interactive Editing State
+let activeTool = 'pan'; // 'pan', 'recolor', 'merge', 'erase'
+let activeColor = '#3b82f6';
+let mergeSource = null;
+let canUndo = false;
+let canRedo = false;
+
+// Zoom & Pan Viewport Transform
+let scale = 1.0;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let startPanMouseX = 0;
+let startPanMouseY = 0;
+let startPanStageX = 0;
+let startPanStageY = 0;
+let isSpacePressed = false;
+
 // Pipeline Configuration State
 const state = {
   colors: 6,
@@ -38,7 +60,7 @@ function hideError() {
   }
 }
 
-// Initialize WebSocket connection for slider interaction
+// Initialize WebSocket connection for slider interaction and live editing
 function initWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -84,6 +106,9 @@ function handleServerMessage(msg) {
       lastSVG = msg.svg;
       updateWorkspaceView();
       hideProgress();
+      break;
+    case 'edit_result':
+      handleEditResult(msg);
       break;
     case 'error':
       showError('Error en el motor: ' + msg.error);
@@ -160,15 +185,21 @@ function updateWorkspaceView() {
   const placeholder = document.getElementById('placeholder-text');
   const imgEl = document.getElementById('img-preview');
   const svgEl = document.getElementById('svg-preview');
+  const toolbar = document.getElementById('editor-toolbar');
+  const hud = document.getElementById('editor-hud');
 
   if (!currentImageBase64) {
     if (placeholder) placeholder.style.display = 'block';
     if (imgEl) imgEl.style.display = 'none';
     if (svgEl) svgEl.style.display = 'none';
+    if (toolbar) toolbar.style.display = 'none';
+    if (hud) hud.style.display = 'none';
     return;
   }
 
   if (placeholder) placeholder.style.display = 'none';
+  if (toolbar) toolbar.style.display = 'flex';
+  if (hud) hud.style.display = 'flex';
 
   if (viewMode === 'orig') {
     imgEl.src = currentImageBase64;
@@ -207,8 +238,31 @@ function renderPaletteSwatches(colors) {
     const swatch = document.createElement('div');
     swatch.className = 'swatch';
     swatch.style.backgroundColor = hex;
-    swatch.title = hex;
+    swatch.title = `Seleccionar color ${hex} para edición`;
+    if (hex.toLowerCase() === activeColor.toLowerCase()) {
+      swatch.classList.add('selected');
+    }
+    swatch.onclick = () => setActiveColor(hex);
     container.appendChild(swatch);
+  });
+
+  if (!activeColor && colors.length > 0) {
+    setActiveColor(colors[0]);
+  }
+}
+
+function setActiveColor(hex) {
+  activeColor = hex;
+  const swatchEl = document.getElementById('active-color-swatch');
+  if (swatchEl) {
+    swatchEl.style.backgroundColor = hex;
+  }
+  document.querySelectorAll('.swatch').forEach(el => {
+    if (el.title.includes(hex)) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
   });
 }
 
@@ -233,7 +287,288 @@ function triggerPipeline() {
   }, 120);
 }
 
-// Upload Handling via HTTP multipart POST (handles multi-megabyte files reliably)
+// Interactive Segment Editor Tools
+function setActiveTool(tool) {
+  activeTool = tool;
+  mergeSource = null;
+
+  ['pan', 'recolor', 'merge', 'erase'].forEach(t => {
+    const btn = document.getElementById(`tool-${t}`);
+    if (btn) {
+      if (t === tool) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    }
+  });
+
+  const stage = document.getElementById('viewport-stage');
+  const hudHint = document.getElementById('hud-tool-hint');
+
+  if (tool === 'pan') {
+    if (stage) stage.style.cursor = 'grab';
+    if (hudHint) hudHint.textContent = 'Modo: Navegación (arrastra para mover lienzo, rueda para zoom)';
+  } else if (tool === 'recolor') {
+    if (stage) stage.style.cursor = 'crosshair';
+    if (hudHint) hudHint.textContent = `Modo: Cubo de Pintura (haz clic en un segmento para aplicar ${activeColor})`;
+  } else if (tool === 'merge') {
+    if (stage) stage.style.cursor = 'crosshair';
+    if (hudHint) hudHint.textContent = 'Modo: Fusión (haz clic en el primer segmento que deseas unir)';
+  } else if (tool === 'erase') {
+    if (stage) stage.style.cursor = 'crosshair';
+    if (hudHint) hudHint.textContent = 'Modo: Borrador a Transparente (haz clic en un segmento para eliminarlo)';
+  }
+}
+
+function handleStageClick(e) {
+  if (activeTool === 'pan' || isPanning) return;
+
+  const pt = getImageCoordinates(e);
+  if (!pt) return;
+
+  hideError();
+
+  if (activeTool === 'recolor') {
+    showProgress('Recoloreando segmento...', 30);
+    sendSegmentAction({
+      action: 'edit',
+      tool: 'recolor',
+      x: pt.x,
+      y: pt.y,
+      color: activeColor
+    });
+  } else if (activeTool === 'erase') {
+    showProgress('Borrando segmento a transparente...', 30);
+    sendSegmentAction({
+      action: 'edit',
+      tool: 'erase',
+      x: pt.x,
+      y: pt.y
+    });
+  } else if (activeTool === 'merge') {
+    if (!mergeSource) {
+      mergeSource = pt;
+      const hudHint = document.getElementById('hud-tool-hint');
+      if (hudHint) {
+        hudHint.textContent = `Primer segmento fijado en (${pt.x}, ${pt.y}). Haz clic en el segundo segmento contiguo para fusionar.`;
+      }
+    } else {
+      showProgress('Fusionando segmentos...', 30);
+      sendSegmentAction({
+        action: 'edit',
+        tool: 'merge',
+        x: mergeSource.x,
+        y: mergeSource.y,
+        x2: pt.x,
+        y2: pt.y
+      });
+      mergeSource = null;
+      setActiveTool('merge');
+    }
+  }
+}
+
+function sendSegmentAction(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  } else {
+    // Fallback to HTTP endpoint
+    fetch('/api/segments/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success) throw new Error(data.error);
+      handleEditResult(data);
+    })
+    .catch(err => {
+      showError('Error en edición: ' + err.message);
+    });
+  }
+}
+
+function handleEditResult(msg) {
+  lastSegPNG = msg.segmentation;
+  lastSVG = msg.svg;
+  canUndo = !!msg.canUndo;
+  canRedo = !!msg.canRedo;
+
+  const btnUndo = document.getElementById('btn-undo');
+  const btnRedo = document.getElementById('btn-redo');
+  if (btnUndo) btnUndo.disabled = !canUndo;
+  if (btnRedo) btnRedo.disabled = !canRedo;
+
+  renderPaletteSwatches(msg.palette);
+  updateWorkspaceView();
+  hideProgress();
+}
+
+function triggerUndo() {
+  if (!canUndo) return;
+  showProgress('Deshaciendo última acción...', 20);
+  sendSegmentAction({ action: 'undo' });
+}
+
+function triggerRedo() {
+  if (!canRedo) return;
+  showProgress('Rehaciendo acción...', 20);
+  sendSegmentAction({ action: 'redo' });
+}
+
+// Zoom & Pan Viewport Logic
+function updateStageTransform() {
+  const stage = document.getElementById('viewport-stage');
+  const zoomText = document.getElementById('zoom-level');
+  if (stage) {
+    stage.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+  }
+  if (zoomText) {
+    zoomText.textContent = `${Math.round(scale * 100)}%`;
+  }
+}
+
+function zoomStep(factor) {
+  const previewBox = document.getElementById('preview-box');
+  if (!previewBox) return;
+
+  const rect = previewBox.getBoundingClientRect();
+  const centerX = rect.width / 2;
+  const centerY = rect.height / 2;
+
+  const newScale = Math.min(Math.max(0.1, scale * factor), 25.0);
+  panX = centerX - (centerX - panX) * (newScale / scale);
+  panY = centerY - (centerY - panY) * (newScale / scale);
+  scale = newScale;
+  updateStageTransform();
+}
+
+function resetZoom() {
+  scale = 1.0;
+  panX = 0;
+  panY = 0;
+  updateStageTransform();
+}
+
+function getImageCoordinates(e) {
+  if (!imgNaturalWidth || !imgNaturalHeight) return null;
+  const stage = document.getElementById('viewport-stage');
+  if (!stage) return null;
+
+  const rect = stage.getBoundingClientRect();
+  const screenX = e.clientX - rect.left;
+  const screenY = e.clientY - rect.top;
+
+  const x = Math.floor(screenX / scale);
+  const y = Math.floor(screenY / scale);
+
+  if (x < 0 || x >= imgNaturalWidth || y < 0 || y >= imgNaturalHeight) {
+    return null;
+  }
+  return { x, y };
+}
+
+// Setup Viewport Drag & Wheel Event Listeners
+function setupViewportInteractions() {
+  const previewBox = document.getElementById('preview-box');
+  const stage = document.getElementById('viewport-stage');
+  const hudCoords = document.getElementById('hud-coords');
+
+  if (!previewBox || !stage) return;
+
+  // Wheel Zoom centered at cursor
+  previewBox.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = previewBox.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const delta = e.deltaY < 0 ? 1.15 : 0.87;
+    const newScale = Math.min(Math.max(0.1, scale * delta), 25.0);
+
+    panX = mouseX - (mouseX - panX) * (newScale / scale);
+    panY = mouseY - (mouseY - panY) * (newScale / scale);
+    scale = newScale;
+    updateStageTransform();
+  }, { passive: false });
+
+  // Pan Mouse Events
+  previewBox.addEventListener('mousedown', (e) => {
+    if (activeTool === 'pan' || isSpacePressed || e.button === 1) {
+      isPanning = true;
+      startPanMouseX = e.clientX;
+      startPanMouseY = e.clientY;
+      startPanStageX = panX;
+      startPanStageY = panY;
+      stage.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isPanning) {
+      panX = startPanStageX + (e.clientX - startPanMouseX);
+      panY = startPanStageY + (e.clientY - startPanMouseY);
+      updateStageTransform();
+      return;
+    }
+
+    // Hover Coordinate HUD
+    if (hudCoords) {
+      const pt = getImageCoordinates(e);
+      if (pt) {
+        hudCoords.textContent = `X: ${pt.x}, Y: ${pt.y}`;
+      }
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isPanning) {
+      isPanning = false;
+      if (stage) {
+        stage.style.cursor = activeTool === 'pan' ? 'grab' : 'crosshair';
+      }
+    }
+  });
+
+  stage.addEventListener('click', (e) => {
+    handleStageClick(e);
+  });
+
+  // Keyboard Shortcuts (Space for Pan, Ctrl+Z, Ctrl+Y)
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !isSpacePressed && e.target.tagName !== 'INPUT') {
+      isSpacePressed = true;
+      if (stage) stage.style.cursor = 'grab';
+      e.preventDefault();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        triggerRedo();
+      } else {
+        triggerUndo();
+      }
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      triggerRedo();
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') {
+      isSpacePressed = false;
+      if (stage) {
+        stage.style.cursor = activeTool === 'pan' ? 'grab' : 'crosshair';
+      }
+    }
+  });
+}
+
+// Upload Handling via HTTP multipart POST
 function handleFileSelect(file) {
   if (!file) return;
 
@@ -241,13 +576,19 @@ function handleFileSelect(file) {
   const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
   showProgress(`Cargando archivo '${file.name}' (${sizeMB} MB)...`, 15);
 
-  // Set local object URL immediately so original view displays
-  try {
-    currentImageBase64 = URL.createObjectURL(file);
-    updateWorkspaceView();
-  } catch (e) {
-    console.warn("Could not create object URL:", e);
-  }
+  const localUrl = URL.createObjectURL(file);
+  currentImageBase64 = localUrl;
+
+  // Measure natural dimensions
+  const tempImg = new Image();
+  tempImg.onload = () => {
+    imgNaturalWidth = tempImg.naturalWidth;
+    imgNaturalHeight = tempImg.naturalHeight;
+    resetZoom();
+  };
+  tempImg.src = localUrl;
+
+  updateWorkspaceView();
 
   const formData = new FormData();
   formData.append('file', file);
@@ -274,8 +615,12 @@ function handleFileSelect(file) {
     return data;
   })
   .then(data => {
+    imgNaturalWidth = data.width || imgNaturalWidth;
+    imgNaturalHeight = data.height || imgNaturalHeight;
     lastSegPNG = data.segmentation;
     lastSVG = data.svg;
+    canUndo = false;
+    canRedo = false;
     renderPaletteSwatches(data.palette);
     updateWorkspaceView();
     hideProgress();
@@ -292,6 +637,15 @@ function loadSample(name) {
   showProgress(`Cargando muestra '${name}' en el servidor...`, 15);
 
   currentImageBase64 = `/api/samples/${encodeURIComponent(name)}`;
+
+  const tempImg = new Image();
+  tempImg.onload = () => {
+    imgNaturalWidth = tempImg.naturalWidth;
+    imgNaturalHeight = tempImg.naturalHeight;
+    resetZoom();
+  };
+  tempImg.src = currentImageBase64;
+
   updateWorkspaceView();
 
   fetch(`/api/samples/load?name=${encodeURIComponent(name)}`, {
@@ -312,8 +666,12 @@ function loadSample(name) {
     return data;
   })
   .then(data => {
+    imgNaturalWidth = data.width || imgNaturalWidth;
+    imgNaturalHeight = data.height || imgNaturalHeight;
     lastSegPNG = data.segmentation;
     lastSVG = data.svg;
+    canUndo = false;
+    canRedo = false;
     renderPaletteSwatches(data.palette);
     updateWorkspaceView();
     hideProgress();
@@ -378,6 +736,7 @@ function copySVGToClipboard() {
 window.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   populateSampleList();
+  setupViewportInteractions();
 
   // Dropzone and File Input
   const dropzone = document.getElementById('dropzone');

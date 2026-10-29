@@ -25,6 +25,8 @@ import (
 	"golang.org/x/net/websocket"
 
 	"github.com/zamora322/vectorizador/pkg/engine"
+	"github.com/zamora322/vectorizador/pkg/palette"
+	"github.com/zamora322/vectorizador/pkg/segmentation"
 )
 
 //go:embed all:web/*
@@ -32,18 +34,23 @@ var webFS embed.FS
 
 // Server wraps the HTTP and WebSocket endpoints for the wizard.
 type Server struct {
-	port      int
-	mu        sync.RWMutex
-	cachedImg image.Image
-	wsMu      sync.Mutex
-	activeWS  map[*websocket.Conn]bool
+	port         int
+	mu           sync.RWMutex
+	cachedImg    image.Image
+	cachedCfg    engine.Config
+	cachedSegMap *segmentation.SegmentMap
+	undoStack    []*segmentation.SegmentMap
+	redoStack    []*segmentation.SegmentMap
+	wsMu         sync.Mutex
+	activeWS     map[*websocket.Conn]bool
 }
 
 // NewServer creates a new server instance.
 func NewServer(port int) *Server {
 	return &Server{
-		port:     port,
-		activeWS: make(map[*websocket.Conn]bool),
+		port:      port,
+		cachedCfg: engine.DefaultConfig(),
+		activeWS:  make(map[*websocket.Conn]bool),
 	}
 }
 
@@ -66,7 +73,10 @@ func (s *Server) Start(autoOpen bool) error {
 	// 3. Reliable HTTP multipart upload endpoint for files of any size
 	mux.HandleFunc("/api/upload", s.handleUpload)
 
-	// 4. WebSocket endpoint for live slider interaction
+	// 4. Interactive segment editing REST endpoint
+	mux.HandleFunc("/api/segments/edit", s.handleSegmentEditHTTP)
+
+	// 5. WebSocket endpoint for live slider & editing interaction
 	mux.Handle("/ws", websocket.Handler(s.handleWebSocket))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -223,6 +233,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	s.cachedCfg = cfg
+	s.cachedSegMap = res.SegmentMap.Clone()
+	s.undoStack = nil
+	s.redoStack = nil
+	s.mu.Unlock()
+
 	paletteHex := make([]string, len(res.Palette))
 	for i, c := range res.Palette {
 		paletteHex[i] = c.Hex()
@@ -305,6 +322,13 @@ func (s *Server) handleLoadSample(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	s.cachedCfg = cfg
+	s.cachedSegMap = res.SegmentMap.Clone()
+	s.undoStack = nil
+	s.redoStack = nil
+	s.mu.Unlock()
+
 	paletteHex := make([]string, len(res.Palette))
 	for i, c := range res.Palette {
 		paletteHex[i] = c.Hex()
@@ -329,7 +353,13 @@ func (s *Server) handleLoadSample(w http.ResponseWriter, r *http.Request) {
 }
 
 type clientWSMessage struct {
-	Action string `json:"action"` // "reprocess"
+	Action string `json:"action"` // "reprocess", "edit", "undo", "redo"
+	Tool   string `json:"tool"`   // "recolor", "merge", "erase"
+	X      int    `json:"x"`
+	Y      int    `json:"y"`
+	X2     int    `json:"x2"`
+	Y2     int    `json:"y2"`
+	Color  string `json:"color"`  // Hex, e.g. "#ff0000"
 	Step   int    `json:"step"`
 	Config struct {
 		Colors        int     `json:"colors"`
@@ -341,6 +371,142 @@ type clientWSMessage struct {
 		AntiSeam      bool    `json:"anti_seam"`
 		TransparentBG bool    `json:"transparent_bg"`
 	} `json:"config"`
+}
+
+func (s *Server) handleSegmentEditHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Método no permitido"})
+		return
+	}
+
+	var msg clientWSMessage
+	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "JSON inválido: " + err.Error()})
+		return
+	}
+
+	resMap, err := s.executeSegmentAction(msg)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	resMap["success"] = true
+	s.broadcastJSON(resMap)
+	json.NewEncoder(w).Encode(resMap)
+}
+
+func (s *Server) executeSegmentAction(msg clientWSMessage) (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cachedSegMap == nil {
+		return nil, fmt.Errorf("no hay segmentación cargada en el motor. Por favor carga una imagen primero")
+	}
+
+	switch msg.Action {
+	case "undo":
+		if len(s.undoStack) == 0 {
+			return nil, fmt.Errorf("no hay más acciones para deshacer")
+		}
+		s.redoStack = append(s.redoStack, s.cachedSegMap.Clone())
+		s.cachedSegMap = s.undoStack[len(s.undoStack)-1]
+		s.undoStack = s.undoStack[:len(s.undoStack)-1]
+
+	case "redo":
+		if len(s.redoStack) == 0 {
+			return nil, fmt.Errorf("no hay más acciones para rehacer")
+		}
+		s.undoStack = append(s.undoStack, s.cachedSegMap.Clone())
+		s.cachedSegMap = s.redoStack[len(s.redoStack)-1]
+		s.redoStack = s.redoStack[:len(s.redoStack)-1]
+
+	case "edit":
+		// Snapshot for undo
+		s.undoStack = append(s.undoStack, s.cachedSegMap.Clone())
+		if len(s.undoStack) > 30 {
+			s.undoStack = s.undoStack[1:]
+		}
+		s.redoStack = nil
+
+		switch msg.Tool {
+		case "recolor":
+			rgb := parseHexColor(msg.Color)
+			if !s.cachedSegMap.RecolorSegmentAt(msg.X, msg.Y, rgb) {
+				return nil, fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
+			}
+		case "merge":
+			if !s.cachedSegMap.MergeSegmentsAt(msg.X, msg.Y, msg.X2, msg.Y2) {
+				return nil, fmt.Errorf("no se pudieron fusionar los segmentos (%d,%d) y (%d,%d)", msg.X, msg.Y, msg.X2, msg.Y2)
+			}
+		case "erase":
+			if !s.cachedSegMap.EraseSegmentAt(msg.X, msg.Y) {
+				return nil, fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
+			}
+		default:
+			return nil, fmt.Errorf("herramienta de edición no reconocida: %s", msg.Tool)
+		}
+	}
+
+	// Fast re-vectorization without re-running K-Means
+	res, err := engine.VectorizeFromSegmentMap(s.cachedSegMap, s.cachedCfg)
+	if err != nil {
+		return nil, fmt.Errorf("error al re-vectorizar: %w", err)
+	}
+
+	paletteHex := make([]string, len(res.Palette))
+	for i, c := range res.Palette {
+		paletteHex[i] = c.Hex()
+	}
+
+	segImg := res.SegmentMap.ToRGBA()
+	var segBuf bytes.Buffer
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	enc.Encode(&segBuf, segImg)
+	segDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(segBuf.Bytes())
+
+	return map[string]interface{}{
+		"type":         "edit_result",
+		"canUndo":      len(s.undoStack) > 0,
+		"canRedo":      len(s.redoStack) > 0,
+		"segmentation": segDataURL,
+		"svg":          res.SVG,
+		"palette":      paletteHex,
+	}, nil
+}
+
+func parseHexColor(s string) palette.RGB {
+	s = strings.TrimPrefix(s, "#")
+	if len(s) == 3 {
+		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
+	}
+	if len(s) != 6 {
+		return palette.RGB{R: 0, G: 0, B: 0}
+	}
+	var r, g, b uint8
+	fmt.Sscanf(s[0:2], "%x", &r)
+	fmt.Sscanf(s[2:4], "%x", &g)
+	fmt.Sscanf(s[4:6], "%x", &b)
+	return palette.RGB{R: r, G: g, B: b}
+}
+
+func (s *Server) broadcastJSON(v interface{}) {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	payload := string(data)
+	for ws := range s.activeWS {
+		websocket.Message.Send(ws, payload)
+	}
 }
 
 func (s *Server) handleWebSocket(ws *websocket.Conn) {
@@ -374,6 +540,17 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 		if err := json.Unmarshal([]byte(rawMsg), &msg); err != nil {
 			log.Printf("JSON unmarshal error: %v", err)
 			sendJSON(ws, map[string]interface{}{"type": "error", "error": "Datos WebSocket malformados: " + err.Error()})
+			continue
+		}
+
+		// Handle live segment editing actions
+		if msg.Action == "edit" || msg.Action == "undo" || msg.Action == "redo" {
+			resMap, err := s.executeSegmentAction(msg)
+			if err != nil {
+				sendJSON(ws, map[string]interface{}{"type": "error", "error": err.Error()})
+			} else {
+				s.broadcastJSON(resMap)
+			}
 			continue
 		}
 
@@ -413,6 +590,13 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 			sendJSON(ws, map[string]interface{}{"type": "error", "error": err.Error()})
 			continue
 		}
+
+		s.mu.Lock()
+		s.cachedCfg = cfg
+		s.cachedSegMap = result.SegmentMap.Clone()
+		s.undoStack = nil
+		s.redoStack = nil
+		s.mu.Unlock()
 
 		paletteHex := make([]string, len(result.Palette))
 		for i, c := range result.Palette {

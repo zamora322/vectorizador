@@ -45,7 +45,7 @@ func GenerateSVG(graph *topology.PlanarGraph, sm *segmentation.SegmentMap, opts 
 
 	for regID, loops := range graph.RegionLoops {
 		seg, ok := sm.Segments[regID]
-		if !ok {
+		if !ok || seg.Transparent {
 			continue
 		}
 

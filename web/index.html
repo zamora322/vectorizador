@@ -207,6 +207,32 @@
         <button type="button" class="error-close" onclick="hideError()" title="Cerrar">✕</button>
       </div>
 
+      <!-- Floating Editor Toolbar (Vector Magic Style) -->
+      <div id="editor-toolbar" class="editor-toolbar" style="display: none;">
+        <div class="tool-group">
+          <button type="button" class="tool-btn active" id="tool-pan" title="Mover lienzo (Pan) - Arrastrar con ratón o mantener Barra Espaciadora" onclick="setActiveTool('pan')">✋</button>
+          <button type="button" class="tool-btn" id="tool-recolor" title="Cubo de Pintura - Clic para recolorear el segmento con el color activo" onclick="setActiveTool('recolor')">🪣</button>
+          <button type="button" class="tool-btn" id="tool-merge" title="Fusionar Segmentos - Clic en el primer segmento y luego en el segundo" onclick="setActiveTool('merge')">🔗</button>
+          <button type="button" class="tool-btn" id="tool-erase" title="Borrador a Transparente - Clic para eliminar un segmento" onclick="setActiveTool('erase')">🧹</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="tool-group">
+          <button type="button" class="tool-btn" id="btn-undo" title="Deshacer (Ctrl+Z)" onclick="triggerUndo()" disabled>↶</button>
+          <button type="button" class="tool-btn" id="btn-redo" title="Rehacer (Ctrl+Y)" onclick="triggerRedo()" disabled>↷</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="tool-group zoom-group">
+          <button type="button" class="tool-btn" title="Alejar (-)" onclick="zoomStep(0.8)">−</button>
+          <span id="zoom-level" class="zoom-text">100%</span>
+          <button type="button" class="tool-btn" title="Acercar (+)" onclick="zoomStep(1.25)">+</button>
+          <button type="button" class="tool-btn" title="Restablecer tamaño (100%)" onclick="resetZoom()">⟲</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="active-color-box" title="Color activo para Cubo de Pintura. Haz clic en las muestras del panel izquierdo para cambiar">
+          <div id="active-color-swatch" class="active-color-swatch" style="background-color: #3b82f6;"></div>
+        </div>
+      </div>
+
       <!-- Mode View Toggle -->
       <div style="position: absolute; top: 1.5rem; right: 1.5rem; display: flex; gap: 0.5rem; z-index: 10;">
         <button class="btn-sample" id="view-mode-orig" onclick="setViewMode('orig')">Original</button>
@@ -218,8 +244,16 @@
         <p id="placeholder-text" style="color: var(--text-muted); font-size: 0.95rem;">
           Carga una imagen para comenzar el asistente de vectorización
         </p>
-        <img id="img-preview" style="display: none;" />
-        <div id="svg-preview" style="display: none;"></div>
+        <div id="viewport-stage" class="viewport-stage">
+          <img id="img-preview" style="display: none;" draggable="false" />
+          <div id="svg-preview" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Editor Status HUD -->
+      <div id="editor-hud" class="editor-hud" style="display: none;">
+        <span id="hud-tool-hint">Modo: Navegación (arrastra para mover, rueda para zoom)</span>
+        <span id="hud-coords" style="font-family: monospace; opacity: 0.85;">X: 0, Y: 0</span>
       </div>
 
       <!-- Real-time Progress Bar Notification -->
