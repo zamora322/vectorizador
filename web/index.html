@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vectorizador - Motor de Vectorización Open-Source</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <div class="logo-area">
+      <div class="logo-icon">V</div>
+      <div class="title">Vectorizador</div>
+      <span class="badge">Inspirado en Vector Magic</span>
+    </div>
+    <div id="connection-status" style="font-size: 0.85rem; color: var(--text-muted);">
+      ● Conectando...
+    </div>
+  </header>
+
+  <!-- Wizard Stepper Header -->
+  <div class="stepper-container">
+    <div class="step-item active" data-step="1" id="step-tab-1">
+      <div class="step-number">1</div>
+      <span>Paleta de Colores</span>
+    </div>
+    <div class="step-item" data-step="2" id="step-tab-2">
+      <div class="step-number">2</div>
+      <span>Segmentación</span>
+    </div>
+    <div class="step-item" data-step="3" id="step-tab-3">
+      <div class="step-number">3</div>
+      <span>Suavizado & Curvas</span>
+    </div>
+    <div class="step-item" data-step="4" id="step-tab-4">
+      <div class="step-number">4</div>
+      <span>Exportación SVG</span>
+    </div>
+  </div>
+
+  <main>
+    <!-- Left Sidebar: Controls by Step -->
+    <div class="sidebar">
+
+      <!-- STEP 1: Palette Selection -->
+      <div class="stage-panel active" id="stage-panel-1">
+        <h3>1. Entrada y Paleta</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Carga una imagen y define los colores representativos en el espacio perceptualmente uniforme CIE L*a*b*.
+        </p>
+
+        <!-- Hidden File Input separated from dropzone to avoid event propagation issues -->
+        <input type="file" id="file-input" accept="image/png, image/jpeg, image/bmp" style="display: none;">
+        
+        <div class="dropzone" id="dropzone">
+          <p style="font-weight: 600; margin-bottom: 0.5rem; pointer-events: none;">📁 Haz clic aquí para seleccionar imagen</p>
+          <p style="font-size: 0.8rem; color: var(--text-muted); pointer-events: none;">o arrastra un archivo PNG / JPG / BMP</p>
+        </div>
+
+        <div class="control-group">
+          <label>O prueba una imagen de calibración (testdata):</label>
+          <div class="sample-buttons" id="sample-buttons-container" style="flex-wrap: wrap;">
+            <!-- Dynamically populated from /api/samples -->
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="color-count-slider">Número de Colores:</label>
+          <div class="slider-container">
+            <input type="range" id="color-count-slider" min="2" max="24" value="6">
+            <span class="range-val" id="color-count-val">6</span>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Paleta detectada:</label>
+          <div class="palette-grid" id="palette-swatches">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <div class="nav-buttons">
+          <button class="btn" style="width: 100%;" onclick="goToStep(2)">Continuar a Segmentación →</button>
+        </div>
+      </div>
+
+      <!-- STEP 2: Segmentation & Anti-Aliasing -->
+      <div class="stage-panel" id="stage-panel-2">
+        <h3>2. Segmentación de Imagen</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Partición de píxeles en componentes conexas y eliminación de artefactos generados por el suavizado de bordes.
+        </p>
+
+        <div class="control-group">
+          <label class="checkbox-group">
+            <input type="checkbox" id="reject-aa-checkbox" checked>
+            <span>Rechazar artefactos de Anti-Aliasing (SubPixel)</span>
+          </label>
+          <small style="color: var(--text-muted);">Elimina franjas intermedias falsas entre formas contiguas de alto contraste.</small>
+        </div>
+
+        <div class="control-group">
+          <label for="min-pixels-slider">Tamaño Mínimo de Segmento (píxeles):</label>
+          <div class="slider-container">
+            <input type="range" id="min-pixels-slider" min="1" max="50" value="4">
+            <span class="range-val" id="min-pixels-val">4 px</span>
+          </div>
+          <small style="color: var(--text-muted);">Fusiona pequeños ruidos o píxeles aislados con la región más afín en color.</small>
+        </div>
+
+        <div class="nav-buttons">
+          <button class="btn btn-secondary" onclick="goToStep(1)">← Paleta</button>
+          <button class="btn" onclick="goToStep(3)">Suavizado →</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Path Smoothing & Bézier Fitting -->
+      <div class="stage-panel" id="stage-panel-3">
+        <h3>3. Suavizado & Curvas Bézier</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Ajuste de polilíneas sobre el grafo planar topológico garantizando bordes compartidos sin huecos.
+        </p>
+
+        <div class="control-group">
+          <label for="smoothness-slider">Nivel de Suavizado:</label>
+          <div class="slider-container">
+            <input type="range" id="smoothness-slider" min="0" max="100" value="50">
+            <span class="range-val" id="smoothness-val">0.50</span>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label class="checkbox-group">
+            <input type="checkbox" id="detect-corners-checkbox" checked>
+            <span>Detectar y preservar esquinas vivas</span>
+          </label>
+          <small style="color: var(--text-muted);">Mantiene intactos los vértices de esquinas agudas en tipografías y polígonos.</small>
+        </div>
+
+        <div class="control-group">
+          <label for="tolerance-slider">Tolerancia de Curvatura (Nodos):</label>
+          <div class="slider-container">
+            <input type="range" id="tolerance-slider" min="10" max="200" value="75">
+            <span class="range-val" id="tolerance-val">0.75 px</span>
+          </div>
+        </div>
+
+        <div class="nav-buttons">
+          <button class="btn btn-secondary" onclick="goToStep(2)">← Segmentación</button>
+          <button class="btn" onclick="goToStep(4)">Exportar →</button>
+        </div>
+      </div>
+
+      <!-- STEP 4: Export -->
+      <div class="stage-panel" id="stage-panel-4">
+        <h3>4. Exportación Vectorial</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          El resultado final ha sido optimizado y agrupado por capas cromáticas.
+        </p>
+
+        <div class="control-group">
+          <label class="checkbox-group">
+            <input type="checkbox" id="anti-seam-checkbox" checked>
+            <span>Aplicar Trazo Anti-Seam (0.09375pt)</span>
+          </label>
+          <small style="color: var(--text-muted);">Previene grietas de renderizado entre formas vectoriales adyacentes.</small>
+        </div>
+
+        <div class="control-group">
+          <label class="checkbox-group">
+            <input type="checkbox" id="transparent-bg-checkbox">
+            <span>Fondo Transparente</span>
+          </label>
+        </div>
+
+        <div class="control-group" style="margin-top: 1rem;">
+          <button class="btn" style="width: 100%;" id="btn-download-svg" onclick="downloadSVG()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Descargar SVG
+          </button>
+        </div>
+
+        <div class="control-group">
+          <button class="btn btn-secondary" style="width: 100%;" onclick="copySVGToClipboard()">
+            Copiar Código SVG
+          </button>
+        </div>
+
+        <div class="nav-buttons">
+          <button class="btn btn-secondary" onclick="goToStep(3)">← Suavizado</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Workspace Area -->
+    <div class="workspace">
+      <!-- Error Notification Banner -->
+      <div id="error-banner" class="error-banner" style="display: none;">
+        <span class="error-icon">⚠️</span>
+        <span id="error-message" class="error-text"></span>
+        <button type="button" class="error-close" onclick="hideError()" title="Cerrar">✕</button>
+      </div>
+
+      <!-- Mode View Toggle -->
+      <div style="position: absolute; top: 1.5rem; right: 1.5rem; display: flex; gap: 0.5rem; z-index: 10;">
+        <button class="btn-sample" id="view-mode-orig" onclick="setViewMode('orig')">Original</button>
+        <button class="btn-sample" id="view-mode-seg" onclick="setViewMode('seg')">Segmentado</button>
+        <button class="btn-sample" id="view-mode-vec" onclick="setViewMode('vec')" style="background: var(--accent); color: white;">Vector SVG</button>
+      </div>
+
+      <div class="preview-container" id="preview-box">
+        <p id="placeholder-text" style="color: var(--text-muted); font-size: 0.95rem;">
+          Carga una imagen para comenzar el asistente de vectorización
+        </p>
+        <img id="img-preview" style="display: none;" />
+        <div id="svg-preview" style="display: none;"></div>
+      </div>
+
+      <!-- Real-time Progress Bar Notification -->
+      <div class="progress-overlay" id="progress-box">
+        <span id="progress-label" style="font-size: 0.85rem; font-weight: 600;">Procesando...</span>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progress-bar"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
