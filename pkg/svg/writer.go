@@ -96,6 +96,9 @@ func GenerateSVG(graph *topology.PlanarGraph, sm *segmentation.SegmentMap, opts 
 
 	// Emit layers by color
 	for colorIdx, pathList := range colorPaths {
+		if colorIdx < 0 || colorIdx >= len(sm.Palette) {
+			continue
+		}
 		if opts.TransparentBackground && colorIdx == len(sm.Palette)-1 {
 			continue
 		}

@@ -60,3 +60,75 @@ type PlanarGraph struct {
 	Edges       []*Edge
 	RegionLoops map[int][]*RegionLoop
 }
+
+func (pg *PlanarGraph) buildRegionLoops() {
+	regionEdges := make(map[int][]*Edge)
+	for _, e := range pg.Edges {
+		if e.LeftRegion >= 0 {
+			regionEdges[e.LeftRegion] = append(regionEdges[e.LeftRegion], e)
+		}
+		if e.RightRegion >= 0 {
+			regionEdges[e.RightRegion] = append(regionEdges[e.RightRegion], e.Reverse())
+		}
+	}
+
+	for regID, edgeList := range regionEdges {
+		loops := assembleLoops(regID, edgeList)
+		pg.RegionLoops[regID] = loops
+	}
+}
+
+func assembleLoops(regID int, edgeList []*Edge) []*RegionLoop {
+	if len(edgeList) == 0 {
+		return nil
+	}
+
+	used := make([]bool, len(edgeList))
+	var loops []*RegionLoop
+
+	for i, startEdge := range edgeList {
+		if used[i] {
+			continue
+		}
+
+		used[i] = true
+		currentLoop := []*Edge{startEdge}
+		if startEdge.IsClosed {
+			loops = append(loops, &RegionLoop{
+				RegionID: regID,
+				Edges:    currentLoop,
+				IsHole:   false,
+			})
+			continue
+		}
+
+		currEnd := startEdge.Points[len(startEdge.Points)-1]
+		startPt := startEdge.Points[0]
+
+		for currEnd != startPt {
+			var nextIdx = -1
+			for j, cand := range edgeList {
+				if !used[j] && (cand.Points[0] == currEnd || cand.Points[0].Distance(currEnd) < 1e-4) {
+					nextIdx = j
+					break
+				}
+			}
+
+			if nextIdx == -1 {
+				break
+			}
+
+			used[nextIdx] = true
+			currentLoop = append(currentLoop, edgeList[nextIdx])
+			currEnd = edgeList[nextIdx].Points[len(edgeList[nextIdx].Points)-1]
+		}
+
+		loops = append(loops, &RegionLoop{
+			RegionID: regID,
+			Edges:    currentLoop,
+			IsHole:   false,
+		})
+	}
+
+	return loops
+}

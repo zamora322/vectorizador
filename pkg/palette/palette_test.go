@@ -70,3 +70,26 @@ func TestExtractPalette(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectOptimalColorCount(t *testing.T) {
+	// Create an image with exactly 4 distinct colors: Red, Green, Blue, Yellow
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 100; x++ {
+			if x < 50 && y < 50 {
+				img.Set(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 255})
+			} else if x >= 50 && y < 50 {
+				img.Set(x, y, color.RGBA{R: 0, G: 255, B: 0, A: 255})
+			} else if x < 50 && y >= 50 {
+				img.Set(x, y, color.RGBA{R: 0, G: 0, B: 255, A: 255})
+			} else {
+				img.Set(x, y, color.RGBA{R: 255, G: 255, B: 0, A: 255})
+			}
+		}
+	}
+
+	count := DetectOptimalColorCount(img)
+	if count != 4 {
+		t.Errorf("Expected 4 detected colors, got %d", count)
+	}
+}

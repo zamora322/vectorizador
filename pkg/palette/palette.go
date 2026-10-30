@@ -36,10 +36,23 @@ func ExtractPalette(img image.Image, k int, maxIterations int) Palette {
 	for y := bounds.Min.Y; y < bounds.Max.Y; y += sampleStep {
 		for x := bounds.Min.X; x < bounds.Max.X; x += sampleStep {
 			r, g, b, a := img.At(x, y).RGBA()
-			if a < 128*257 { // Ignore mostly transparent pixels
+			if a < 128*257 { // Ignore transparent pixels for palette extraction
 				continue
 			}
-			rgb := RGB{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8)}
+
+			// Anti-Fringe: Un-premultiply alpha so K-Means clusters true colors without dark halos
+			var red, green, blue uint8
+			if a > 0 && a < 65535 {
+				red = uint8((r * 65535 / a) >> 8)
+				green = uint8((g * 65535 / a) >> 8)
+				blue = uint8((b * 65535 / a) >> 8)
+			} else {
+				red = uint8(r >> 8)
+				green = uint8(g >> 8)
+				blue = uint8(b >> 8)
+			}
+
+			rgb := RGB{R: red, G: green, B: blue}
 			samples = append(samples, sample{rgb: rgb, lab: RGBToLab(rgb)})
 		}
 	}
@@ -172,4 +185,102 @@ func (p Palette) NearestColor(c RGB) RGB {
 		return c
 	}
 	return p[p.NearestIndex(c)]
+}
+
+// DetectOptimalColorCount analyzes the image and detects the natural number of dominant colors.
+func DetectOptimalColorCount(img image.Image) int {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	totalPixels := w * h
+	if totalPixels == 0 {
+		return 6
+	}
+
+	sampleStep := 1
+	if totalPixels > 100000 {
+		sampleStep = int(math.Ceil(math.Sqrt(float64(totalPixels) / 40000.0)))
+	}
+
+	bins := make(map[uint32]int)
+	binColors := make(map[uint32]RGB)
+	totalSampled := 0
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += sampleStep {
+		for x := bounds.Min.X; x < bounds.Max.X; x += sampleStep {
+			r, g, b, a := img.At(x, y).RGBA()
+			if a < 128*257 {
+				continue // Ignore transparent pixels
+			}
+
+			var red, green, blue uint8
+			if a > 0 && a < 65535 {
+				red = uint8((r * 65535 / a) >> 8)
+				green = uint8((g * 65535 / a) >> 8)
+				blue = uint8((b * 65535 / a) >> 8)
+			} else {
+				red = uint8(r >> 8)
+				green = uint8(g >> 8)
+				blue = uint8(b >> 8)
+			}
+
+			// 5-bit channel quantization (32 levels per channel)
+			qKey := (uint32(red>>3) << 10) | (uint32(green>>3) << 5) | uint32(blue>>3)
+			bins[qKey]++
+			if _, ok := binColors[qKey]; !ok {
+				binColors[qKey] = RGB{R: red, G: green, B: blue}
+			}
+			totalSampled++
+		}
+	}
+
+	if totalSampled == 0 {
+		return 2
+	}
+
+	type binEntry struct {
+		key   uint32
+		count int
+	}
+	sortedBins := make([]binEntry, 0, len(bins))
+	for k, c := range bins {
+		sortedBins = append(sortedBins, binEntry{key: k, count: c})
+	}
+	sort.Slice(sortedBins, func(i, j int) bool {
+		return sortedBins[i].count > sortedBins[j].count
+	})
+
+	// Threshold: cluster must represent at least 0.4% of non-transparent image
+	minCount := int(float64(totalSampled) * 0.004)
+	if minCount < 4 {
+		minCount = 4
+	}
+
+	var distinct []Lab
+	for _, b := range sortedBins {
+		if b.count < minCount {
+			continue
+		}
+		rgb := binColors[b.key]
+		lab := RGBToLab(rgb)
+
+		isFar := true
+		for _, d := range distinct {
+			if DeltaE(lab, d) < 14.0 {
+				isFar = false
+				break
+			}
+		}
+		if isFar {
+			distinct = append(distinct, lab)
+			if len(distinct) >= 16 {
+				break
+			}
+		}
+	}
+
+	detected := len(distinct)
+	if detected < 2 {
+		detected = 2
+	}
+	return detected
 }

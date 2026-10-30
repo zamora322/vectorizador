@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -25,6 +26,7 @@ import (
 	"golang.org/x/net/websocket"
 
 	"github.com/zamora322/vectorizador/pkg/engine"
+	"github.com/zamora322/vectorizador/pkg/exporter"
 	"github.com/zamora322/vectorizador/pkg/palette"
 	"github.com/zamora322/vectorizador/pkg/segmentation"
 )
@@ -76,7 +78,13 @@ func (s *Server) Start(autoOpen bool) error {
 	// 4. Interactive segment editing REST endpoint
 	mux.HandleFunc("/api/segments/edit", s.handleSegmentEditHTTP)
 
-	// 5. WebSocket endpoint for live slider & editing interaction
+	// 5. Quick Palettes candidate suggestions
+	mux.HandleFunc("/api/palettes/suggest", s.handleSuggestPalettes)
+
+	// 6. Multi-format vector export endpoint (SVG, EPS, PDF, DXF)
+	mux.HandleFunc("/api/export", s.handleExport)
+
+	// 7. WebSocket endpoint for live slider & editing interaction
 	mux.Handle("/ws", websocket.Handler(s.handleWebSocket))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -224,6 +232,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	detectedColors := palette.DetectOptimalColorCount(img)
+	if cfg.Colors <= 0 {
+		cfg.Colors = detectedColors
+	}
+
 	res, err := engine.Vectorize(img, cfg, func(stage string, percent int) {
 		s.broadcastProgress(stage, percent)
 	})
@@ -240,10 +253,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	s.redoStack = nil
 	s.mu.Unlock()
 
-	paletteHex := make([]string, len(res.Palette))
-	for i, c := range res.Palette {
-		paletteHex[i] = c.Hex()
-	}
+	paletteHex := extractPaletteHex(res)
 
 	segImg := res.SegmentMap.ToRGBA()
 	var segBuf bytes.Buffer
@@ -251,15 +261,20 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(&segBuf, segImg)
 	segDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(segBuf.Bytes())
 
+	suggestedData := s.generateSuggestedPalettes(img)
+	candidates := suggestedData["candidates"]
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"format":       format,
-		"filename":     header.Filename,
-		"width":        img.Bounds().Dx(),
-		"height":       img.Bounds().Dy(),
-		"palette":      paletteHex,
-		"segmentation": segDataURL,
-		"svg":          res.SVG,
+		"success":         true,
+		"format":          format,
+		"filename":        header.Filename,
+		"width":           img.Bounds().Dx(),
+		"height":          img.Bounds().Dy(),
+		"palette":         paletteHex,
+		"detected_colors": detectedColors,
+		"candidates":      candidates,
+		"segmentation":    segDataURL,
+		"svg":             res.SVG,
 	})
 }
 
@@ -311,7 +326,19 @@ func (s *Server) handleLoadSample(w http.ResponseWriter, r *http.Request) {
 	s.cachedImg = img
 	s.mu.Unlock()
 
-	cfg := engine.DefaultConfig()
+	var cfg engine.Config
+	if strings.Contains(strings.ToLower(name), "sharp") {
+		cfg = engine.PresetConfig(engine.ModeLogoSharp, engine.QualityMedium)
+	} else if strings.Contains(strings.ToLower(name), "curved") {
+		cfg = engine.PresetConfig(engine.ModePhoto, engine.QualityMedium)
+	} else {
+		cfg = engine.PresetConfig(engine.ModeLogoAA, engine.QualityMedium)
+	}
+
+	detectedColors := palette.DetectOptimalColorCount(img)
+	if cfg.Colors <= 0 {
+		cfg.Colors = detectedColors
+	}
 
 	res, err := engine.Vectorize(img, cfg, func(stage string, percent int) {
 		s.broadcastProgress(stage, percent)
@@ -329,10 +356,7 @@ func (s *Server) handleLoadSample(w http.ResponseWriter, r *http.Request) {
 	s.redoStack = nil
 	s.mu.Unlock()
 
-	paletteHex := make([]string, len(res.Palette))
-	for i, c := range res.Palette {
-		paletteHex[i] = c.Hex()
-	}
+	paletteHex := extractPaletteHex(res)
 
 	segImg := res.SegmentMap.ToRGBA()
 	var segBuf bytes.Buffer
@@ -340,28 +364,41 @@ func (s *Server) handleLoadSample(w http.ResponseWriter, r *http.Request) {
 	enc.Encode(&segBuf, segImg)
 	segDataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(segBuf.Bytes())
 
+	suggestedData := s.generateSuggestedPalettes(img)
+	candidates := suggestedData["candidates"]
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"format":       format,
-		"filename":     name,
-		"width":        img.Bounds().Dx(),
-		"height":       img.Bounds().Dy(),
-		"palette":      paletteHex,
-		"segmentation": segDataURL,
-		"svg":          res.SVG,
+		"success":         true,
+		"format":          format,
+		"filename":        name,
+		"mode":            string(cfg.Mode),
+		"quality":         string(cfg.Quality),
+		"width":           img.Bounds().Dx(),
+		"height":          img.Bounds().Dy(),
+		"palette":         paletteHex,
+		"detected_colors": detectedColors,
+		"candidates":      candidates,
+		"segmentation":    segDataURL,
+		"svg":             res.SVG,
 	})
 }
 
 type clientWSMessage struct {
-	Action string `json:"action"` // "reprocess", "edit", "undo", "redo"
-	Tool   string `json:"tool"`   // "recolor", "merge", "erase"
-	X      int    `json:"x"`
-	Y      int    `json:"y"`
-	X2     int    `json:"x2"`
-	Y2     int    `json:"y2"`
-	Color  string `json:"color"`  // Hex, e.g. "#ff0000"
-	Step   int    `json:"step"`
-	Config struct {
+	Action      string               `json:"action"` // "reprocess", "edit", "undo", "redo"
+	Tool        string               `json:"tool"`   // "recolor", "merge", "erase", "zap", "pencil", "undo", "redo"
+	X           int                  `json:"x"`
+	Y           int                  `json:"y"`
+	X2          int                  `json:"x2"`
+	Y2          int                  `json:"y2"`
+	TargetX     int                  `json:"target_x"`
+	TargetY     int                  `json:"target_y"`
+	Color       string               `json:"color"`        // Hex, e.g. "#ff0000"
+	StrokeWidth int                  `json:"stroke_width"` // For pencil
+	Points      []segmentation.Point `json:"points"`       // For pencil stroke
+	Step        int                  `json:"step"`
+	Config      struct {
+		Mode          string  `json:"mode"`
+		Quality       string  `json:"quality"`
 		Colors        int     `json:"colors"`
 		MinPixels     int     `json:"min_pixels"`
 		RejectAA      bool    `json:"reject_aa"`
@@ -409,6 +446,23 @@ func (s *Server) executeSegmentAction(msg clientWSMessage) (map[string]interface
 		return nil, fmt.Errorf("no hay segmentación cargada en el motor. Por favor carga una imagen primero")
 	}
 
+	// Auto-infer action if missing or tool provided directly
+	if msg.Action == "" {
+		if msg.Tool == "undo" || msg.Tool == "redo" {
+			msg.Action = msg.Tool
+		} else if msg.Tool == "recolor" || msg.Tool == "merge" || msg.Tool == "erase" || msg.Tool == "zap" || msg.Tool == "pencil" {
+			msg.Action = "edit"
+		}
+	}
+
+	// Support TargetX / TargetY aliases for merge
+	if msg.X2 == 0 && msg.Y2 == 0 {
+		if msg.TargetX != 0 || msg.TargetY != 0 {
+			msg.X2 = msg.TargetX
+			msg.Y2 = msg.TargetY
+		}
+	}
+
 	switch msg.Action {
 	case "undo":
 		if len(s.undoStack) == 0 {
@@ -427,30 +481,63 @@ func (s *Server) executeSegmentAction(msg clientWSMessage) (map[string]interface
 		s.redoStack = s.redoStack[:len(s.redoStack)-1]
 
 	case "edit":
-		// Snapshot for undo
-		s.undoStack = append(s.undoStack, s.cachedSegMap.Clone())
+		snapshot := s.cachedSegMap.Clone()
+		var editErr error
+
+		switch msg.Tool {
+		case "recolor":
+			if strings.ToLower(msg.Color) == "transparent" {
+				if !s.cachedSegMap.EraseSegmentAt(msg.X, msg.Y) {
+					editErr = fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
+				}
+			} else {
+				rgb := parseHexColor(msg.Color)
+				if !s.cachedSegMap.RecolorSegmentAt(msg.X, msg.Y, rgb) {
+					editErr = fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
+				}
+			}
+		case "merge":
+			if !s.cachedSegMap.MergeSegmentsAt(msg.X, msg.Y, msg.X2, msg.Y2) {
+				editErr = fmt.Errorf("no se pudieron fusionar los segmentos (%d,%d) y (%d,%d)", msg.X, msg.Y, msg.X2, msg.Y2)
+			}
+		case "erase":
+			if !s.cachedSegMap.EraseSegmentAt(msg.X, msg.Y) {
+				editErr = fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
+			}
+		case "zap":
+			if !s.cachedSegMap.ZapSegmentAt(msg.X, msg.Y) {
+				editErr = fmt.Errorf("no se pudo eliminar y redistribuir el segmento en (%d, %d)", msg.X, msg.Y)
+			}
+		case "pencil":
+			rgb := parseHexColor(msg.Color)
+			width := msg.StrokeWidth
+			if width < 1 {
+				width = 2
+			}
+			pts := msg.Points
+			if len(pts) == 0 && (msg.X != 0 || msg.Y != 0) {
+				pts = []segmentation.Point{{X: msg.X, Y: msg.Y}}
+			}
+			if !s.cachedSegMap.PencilStroke(pts, width, rgb) {
+				editErr = fmt.Errorf("no se pudo aplicar el trazo de lápiz")
+			}
+		default:
+			editErr = fmt.Errorf("herramienta de edición no reconocida: %s", msg.Tool)
+		}
+
+		if editErr != nil {
+			return nil, editErr
+		}
+
+		// Snapshot is only preserved on undo stack when edit succeeds
+		s.undoStack = append(s.undoStack, snapshot)
 		if len(s.undoStack) > 30 {
 			s.undoStack = s.undoStack[1:]
 		}
 		s.redoStack = nil
 
-		switch msg.Tool {
-		case "recolor":
-			rgb := parseHexColor(msg.Color)
-			if !s.cachedSegMap.RecolorSegmentAt(msg.X, msg.Y, rgb) {
-				return nil, fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
-			}
-		case "merge":
-			if !s.cachedSegMap.MergeSegmentsAt(msg.X, msg.Y, msg.X2, msg.Y2) {
-				return nil, fmt.Errorf("no se pudieron fusionar los segmentos (%d,%d) y (%d,%d)", msg.X, msg.Y, msg.X2, msg.Y2)
-			}
-		case "erase":
-			if !s.cachedSegMap.EraseSegmentAt(msg.X, msg.Y) {
-				return nil, fmt.Errorf("coordenadas fuera de rango (%d, %d)", msg.X, msg.Y)
-			}
-		default:
-			return nil, fmt.Errorf("herramienta de edición no reconocida: %s", msg.Tool)
-		}
+	default:
+		return nil, fmt.Errorf("acción no reconocida: %s", msg.Action)
 	}
 
 	// Fast re-vectorization without re-running K-Means
@@ -459,10 +546,7 @@ func (s *Server) executeSegmentAction(msg clientWSMessage) (map[string]interface
 		return nil, fmt.Errorf("error al re-vectorizar: %w", err)
 	}
 
-	paletteHex := make([]string, len(res.Palette))
-	for i, c := range res.Palette {
-		paletteHex[i] = c.Hex()
-	}
+	paletteHex := extractPaletteHex(res)
 
 	segImg := res.SegmentMap.ToRGBA()
 	var segBuf bytes.Buffer
@@ -474,10 +558,35 @@ func (s *Server) executeSegmentAction(msg clientWSMessage) (map[string]interface
 		"type":         "edit_result",
 		"canUndo":      len(s.undoStack) > 0,
 		"canRedo":      len(s.redoStack) > 0,
+		"can_undo":     len(s.undoStack) > 0,
+		"can_redo":     len(s.redoStack) > 0,
 		"segmentation": segDataURL,
 		"svg":          res.SVG,
 		"palette":      paletteHex,
 	}, nil
+}
+
+func extractPaletteHex(res *engine.Result) []string {
+	if res == nil {
+		return nil
+	}
+	hasTransparent := false
+	if res.SegmentMap != nil {
+		for _, seg := range res.SegmentMap.Segments {
+			if seg.Transparent {
+				hasTransparent = true
+				break
+			}
+		}
+	}
+	paletteHex := make([]string, 0, len(res.Palette)+1)
+	if hasTransparent {
+		paletteHex = append(paletteHex, "transparent")
+	}
+	for _, c := range res.Palette {
+		paletteHex = append(paletteHex, c.Hex())
+	}
+	return paletteHex
 }
 
 func parseHexColor(s string) palette.RGB {
@@ -544,7 +653,10 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 		}
 
 		// Handle live segment editing actions
-		if msg.Action == "edit" || msg.Action == "undo" || msg.Action == "redo" {
+		if msg.Action == "edit" || msg.Action == "undo" || msg.Action == "redo" ||
+			msg.Tool == "recolor" || msg.Tool == "merge" || msg.Tool == "erase" ||
+			msg.Tool == "zap" || msg.Tool == "pencil" ||
+			msg.Tool == "undo" || msg.Tool == "redo" {
 			resMap, err := s.executeSegmentAction(msg)
 			if err != nil {
 				sendJSON(ws, map[string]interface{}{"type": "error", "error": err.Error()})
@@ -564,7 +676,8 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 		}
 
 		cfg := engine.Config{
-			Mode:                  "logo_aa",
+			Mode:                  engine.NormalizeMode(msg.Config.Mode),
+			Quality:               engine.NormalizeQuality(msg.Config.Quality),
 			Colors:                msg.Config.Colors,
 			MinPixels:             msg.Config.MinPixels,
 			AntiAliasingReject:    msg.Config.RejectAA,
@@ -574,13 +687,7 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 			AntiSeamStroke:        msg.Config.AntiSeam,
 			TransparentBackground: msg.Config.TransparentBG,
 		}
-
-		if cfg.Colors <= 0 {
-			cfg.Colors = 6
-		}
-		if cfg.MinPixels <= 0 {
-			cfg.MinPixels = 4
-		}
+		cfg.ApplyPreset()
 
 		result, err := engine.Vectorize(targetImg, cfg, func(stage string, percent int) {
 			s.broadcastProgress(stage, percent)
@@ -598,10 +705,7 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 		s.redoStack = nil
 		s.mu.Unlock()
 
-		paletteHex := make([]string, len(result.Palette))
-		for i, c := range result.Palette {
-			paletteHex[i] = c.Hex()
-		}
+		paletteHex := extractPaletteHex(result)
 		sendJSON(ws, map[string]interface{}{
 			"type":   "palette",
 			"colors": paletteHex,
@@ -625,10 +729,131 @@ func (s *Server) handleWebSocket(ws *websocket.Conn) {
 	}
 }
 
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "svg"
+	}
+	format = strings.ToLower(strings.TrimSpace(format))
+
+	s.mu.RLock()
+	segMap := s.cachedSegMap
+	cfg := s.cachedCfg
+	s.mu.RUnlock()
+
+	if segMap == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "No hay ninguna imagen vectorizada disponible para exportar.",
+		})
+		return
+	}
+
+	// Read optional overrides from query params
+	if as := r.URL.Query().Get("anti_seam"); as != "" {
+		cfg.AntiSeamStroke = as == "true"
+	}
+	if tbg := r.URL.Query().Get("transparent_bg"); tbg != "" {
+		cfg.TransparentBackground = tbg == "true"
+	}
+
+	res, err := engine.VectorizeFromSegmentMap(segMap, cfg)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Error al generar geometría vectorial: " + err.Error(),
+		})
+		return
+	}
+
+	data, err := res.Export(format)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	filename := fmt.Sprintf("vectorizado.%s", format)
+	w.Header().Set("Content-Type", exporter.ContentType(format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
 func sendJSON(ws *websocket.Conn, v interface{}) {
 	data, err := json.Marshal(v)
 	if err == nil {
 		websocket.Message.Send(ws, string(data))
+	}
+}
+
+type PaletteCandidate struct {
+	Colors    int      `json:"colors"`
+	Palette   []string `json:"palette"`
+	IsOptimal bool     `json:"is_optimal"`
+}
+
+func (s *Server) handleSuggestPalettes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	s.mu.RLock()
+	img := s.cachedImg
+	s.mu.RUnlock()
+
+	if img == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "No hay imagen cargada en el motor"})
+		return
+	}
+
+	res := s.generateSuggestedPalettes(img)
+	json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) generateSuggestedPalettes(img image.Image) map[string]interface{} {
+	if img == nil {
+		return map[string]interface{}{"success": false, "candidates": []PaletteCandidate{}}
+	}
+
+	optimal := palette.DetectOptimalColorCount(img)
+	candidatesList := []int{2, 4, 6, 8, 12, 16}
+
+	hasOptimal := false
+	for _, c := range candidatesList {
+		if c == optimal {
+			hasOptimal = true
+			break
+		}
+	}
+	if !hasOptimal && optimal > 1 && optimal <= 24 {
+		candidatesList = append(candidatesList, optimal)
+		sort.Ints(candidatesList)
+	}
+
+	var candidates []PaletteCandidate
+	for _, k := range candidatesList {
+		pal := palette.ExtractPalette(img, k, 10)
+		hexes := make([]string, len(pal))
+		for i, rgb := range pal {
+			hexes[i] = rgb.Hex()
+		}
+		candidates = append(candidates, PaletteCandidate{
+			Colors:    k,
+			Palette:   hexes,
+			IsOptimal: (k == optimal),
+		})
+	}
+
+	return map[string]interface{}{
+		"success":    true,
+		"suggested":  optimal,
+		"candidates": candidates,
 	}
 }
 

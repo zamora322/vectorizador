@@ -39,6 +39,22 @@ func TestEndToEndVectorize(t *testing.T) {
 		t.Errorf("Invalid SVG generated")
 	}
 
+	// Verify multi-format exporters
+	eps := res.ToEPS()
+	if !strings.HasPrefix(eps, "%!PS-Adobe-3.0 EPSF-3.0") {
+		t.Errorf("Expected valid EPS header")
+	}
+
+	pdf := res.ToPDF()
+	if !strings.HasPrefix(string(pdf[:8]), "%PDF-1.4") {
+		t.Errorf("Expected valid PDF header")
+	}
+
+	dxf := res.ToDXF()
+	if !strings.HasPrefix(dxf, "0\nSECTION\n2\nHEADER\n") {
+		t.Errorf("Expected valid DXF header")
+	}
+
 	if len(progressReports) < 5 {
 		t.Errorf("Expected at least 5 progress reports, got %d", len(progressReports))
 	}

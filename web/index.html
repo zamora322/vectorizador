@@ -1,271 +1,979 @@
 <!DOCTYPE html>
-<html lang="es">
+<html class="h-full bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-500 selection:text-white" lang="es">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vectorizador - Motor de Vectorización Open-Source</title>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>Vectorizador Studio — Motor de Vectorización Open-Source</title>
+
+  <!-- Tailwind CSS CDN con plugins -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+  <!-- Configuración personalizada de Tailwind -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              glow: 'rgba(99, 102, 241, 0.35)'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+          },
+          boxShadow: {
+            'glow-subtle': '0 0 20px -3px rgba(99, 102, 241, 0.25)',
+            'floating-dock': '0 20px 40px -15px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.08)'
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link href="https://fonts.googleapis.com" rel="preconnect">
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
 
-  <header>
-    <div class="logo-area">
-      <div class="logo-icon">V</div>
-      <div class="title">Vectorizador</div>
-      <span class="badge">Inspirado en Vector Magic</span>
+<body class="h-full flex flex-col overflow-hidden text-sm bg-zinc-950 font-sans select-none">
+
+  <!-- BEGIN: MainHeader -->
+  <header
+    class="h-14 border-b border-white/[0.08] bg-zinc-950/80 backdrop-blur-md px-4 flex items-center justify-between z-30 shrink-0">
+    <!-- Lado Izquierdo: Branding & Versión -->
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2.5">
+        <div
+          class="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 via-brand-500 to-cyan-400 p-[1px] flex items-center justify-center shadow-glow-subtle">
+          <div class="w-full h-full bg-zinc-950 rounded-[7px] flex items-center justify-center">
+            <!-- Icono Pluma Vectorial Stylized -->
+            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-linecap="round"
+              stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24">
+              <path d="m12 19 7-7 3 3-7 7-3-3z"></path>
+              <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+              <path d="m2 2 7.586 7.586"></path>
+              <circle cx="11" cy="11" r="2"></circle>
+            </svg>
+          </div>
+        </div>
+        <div class="flex items-baseline space-x-1.5">
+          <span class="font-semibold text-zinc-100 tracking-tight text-base">Vectorizador</span>
+          <span
+            class="text-xs font-semibold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">Studio</span>
+        </div>
+      </div>
+      <span
+        class="px-1.5 py-0.5 text-[10px] font-mono tracking-wider font-medium uppercase bg-white/5 border border-white/10 text-zinc-400 rounded">v2.4
+        Pro</span>
     </div>
-    <div id="connection-status" style="font-size: 0.85rem; color: var(--text-muted);">
-      ● Conectando...
+
+    <!-- Lado Derecho: Estado WebSocket y Menú de Exportación Rápida -->
+    <div class="flex items-center space-x-3">
+      <!-- Indicador de Conexión del Motor -->
+      <div id="connection-status"
+        class="hidden lg:flex items-center space-x-2 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono">
+        <span class="relative flex h-2 w-2">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="tracking-tight">Motor Conectado</span>
+      </div>
+
+      <div class="h-4 w-px bg-white/10"></div>
+
+      <!-- Menú Desplegable de Exportación Rápida Multiformato -->
+      <div class="relative inline-block text-left" id="header-export-container">
+        <button type="button"
+          class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition"
+          onclick="toggleQuickExportMenu()">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Descargar</span>
+          <svg class="w-3 h-3 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+          </svg>
+        </button>
+
+        <!-- Dropdown flotante (Estilo Google Stitch) -->
+        <div id="quick-export-menu"
+          class="hidden absolute right-0 mt-2 w-52 rounded-xl bg-zinc-900 border border-white/10 shadow-2xl py-1.5 z-50 text-xs">
+          <button type="button"
+            class="w-full text-left px-3.5 py-2 hover:bg-white/5 flex items-center justify-between text-zinc-200 transition"
+            onclick="downloadFormat('svg'); hideQuickExportMenu();">
+            <span class="flex items-center">
+              <svg class="w-3.5 h-3.5 text-indigo-400 mr-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
+              </svg>
+              <span>Gráfico SVG (Web)</span>
+            </span>
+            <span class="text-[10px] font-mono text-zinc-500">.svg</span>
+          </button>
+          <button type="button"
+            class="w-full text-left px-3.5 py-2 hover:bg-white/5 flex items-center justify-between text-zinc-200 transition"
+            onclick="downloadFormat('pdf'); hideQuickExportMenu();">
+            <span class="flex items-center">
+              <svg class="w-3.5 h-3.5 text-rose-400 mr-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" x2="8" y1="13" y2="13"></line>
+                <line x1="16" x2="8" y1="17" y2="17"></line>
+              </svg>
+              <span>Documento PDF (Vector)</span>
+            </span>
+            <span class="text-[10px] font-mono text-zinc-500">.pdf</span>
+          </button>
+          <button type="button"
+            class="w-full text-left px-3.5 py-2 hover:bg-white/5 flex items-center justify-between text-zinc-200 transition"
+            onclick="downloadFormat('eps'); hideQuickExportMenu();">
+            <span class="flex items-center">
+              <svg class="w-3.5 h-3.5 text-amber-400 mr-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <path d="m12 19 7-7 3 3-7 7-3-3z"></path>
+                <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+              </svg>
+              <span>PostScript EPS (Print)</span>
+            </span>
+            <span class="text-[10px] font-mono text-zinc-500">.eps</span>
+          </button>
+          <button type="button"
+            class="w-full text-left px-3.5 py-2 hover:bg-white/5 flex items-center justify-between text-zinc-200 transition"
+            onclick="downloadFormat('dxf'); hideQuickExportMenu();">
+            <span class="flex items-center">
+              <svg class="w-3.5 h-3.5 text-cyan-400 mr-2 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <circle cx="6" cy="6" r="3"></circle>
+                <circle cx="18" cy="18" r="3"></circle>
+                <path d="M18 9v3a3 3 0 0 1-3 3H9"></path>
+              </svg>
+              <span>AutoCAD DXF (CNC/Láser)</span>
+            </span>
+            <span class="text-[10px] font-mono text-zinc-500">.dxf</span>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
+  <!-- END: MainHeader -->
 
-  <!-- Wizard Stepper Header -->
-  <div class="stepper-container">
-    <div class="step-item active" data-step="1" id="step-tab-1">
-      <div class="step-number">1</div>
-      <span>Paleta de Colores</span>
-    </div>
-    <div class="step-item" data-step="2" id="step-tab-2">
-      <div class="step-number">2</div>
-      <span>Segmentación</span>
-    </div>
-    <div class="step-item" data-step="3" id="step-tab-3">
-      <div class="step-number">3</div>
-      <span>Suavizado & Curvas</span>
-    </div>
-    <div class="step-item" data-step="4" id="step-tab-4">
-      <div class="step-number">4</div>
-      <span>Exportación SVG</span>
-    </div>
-  </div>
+  <!-- BEGIN: MainContentArea -->
+  <main class="flex-1 flex overflow-hidden relative">
 
-  <main>
-    <!-- Left Sidebar: Controls by Step -->
-    <div class="sidebar">
+    <!-- BEGIN: LeftSidebar (Panel de Entrada y Parámetros) -->
+    <aside
+      class="w-80 md:w-96 bg-zinc-900/95 backdrop-blur-xl border-r border-white/10 flex flex-col z-20 shrink-0 overflow-hidden">
 
-      <!-- STEP 1: Palette Selection -->
-      <div class="stage-panel active" id="stage-panel-1">
-        <h3>1. Entrada y Paleta</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted);">
-          Carga una imagen y define los colores representativos en el espacio perceptualmente uniforme CIE L*a*b*.
-        </p>
+      <!-- Hidden File Input -->
+      <input type="file" id="file-input" accept="image/png, image/jpeg, image/bmp" style="display: none;">
 
-        <!-- Hidden File Input separated from dropzone to avoid event propagation issues -->
-        <input type="file" id="file-input" accept="image/png, image/jpeg, image/bmp" style="display: none;">
-        
-        <div class="dropzone" id="dropzone">
-          <p style="font-weight: 600; margin-bottom: 0.5rem; pointer-events: none;">📁 Haz clic aquí para seleccionar imagen</p>
-          <p style="font-size: 0.8rem; color: var(--text-muted); pointer-events: none;">o arrastra un archivo PNG / JPG / BMP</p>
-        </div>
-
-        <div class="control-group">
-          <label>O prueba una imagen de calibración (testdata):</label>
-          <div class="sample-buttons" id="sample-buttons-container" style="flex-wrap: wrap;">
-            <!-- Dynamically populated from /api/samples -->
-          </div>
-        </div>
-
-        <div class="control-group">
-          <label for="color-count-slider">Número de Colores:</label>
-          <div class="slider-container">
-            <input type="range" id="color-count-slider" min="2" max="24" value="6">
-            <span class="range-val" id="color-count-val">6</span>
-          </div>
-        </div>
-
-        <div class="control-group">
-          <label>Paleta detectada:</label>
-          <div class="palette-grid" id="palette-swatches">
-            <!-- Dynamically populated -->
-          </div>
-        </div>
-
-        <div class="nav-buttons">
-          <button class="btn" style="width: 100%;" onclick="goToStep(2)">Continuar a Segmentación →</button>
+      <!-- Encabezado del Inspector Lateral -->
+      <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between shrink-0 bg-zinc-950/40">
+        <div class="flex items-center space-x-2">
+          <div class="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></div>
+          <span class="font-semibold text-zinc-100 tracking-tight text-xs uppercase tracking-wider">Ajustes del
+            Vectorizador</span>
         </div>
       </div>
 
-      <!-- STEP 2: Segmentation & Anti-Aliasing -->
-      <div class="stage-panel" id="stage-panel-2">
-        <h3>2. Segmentación de Imagen</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted);">
-          Partición de píxeles en componentes conexas y eliminación de artefactos generados por el suavizado de bordes.
-        </p>
+      <!-- Contenedor Único Scrolleable con Todas las Secciones -->
+      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-6" id="sidebar-scroll-container">
 
-        <div class="control-group">
-          <label class="checkbox-group">
-            <input type="checkbox" id="reject-aa-checkbox" checked>
-            <span>Rechazar artefactos de Anti-Aliasing (SubPixel)</span>
-          </label>
-          <small style="color: var(--text-muted);">Elimina franjas intermedias falsas entre formas contiguas de alto contraste.</small>
-        </div>
-
-        <div class="control-group">
-          <label for="min-pixels-slider">Tamaño Mínimo de Segmento (píxeles):</label>
-          <div class="slider-container">
-            <input type="range" id="min-pixels-slider" min="1" max="50" value="4">
-            <span class="range-val" id="min-pixels-val">4 px</span>
+        <!-- ================= SECCIÓN 1: TIPO DE GRÁFICO & ENTRADA ================= -->
+        <section id="sec-input" class="space-y-4">
+          <div class="flex items-center justify-between pb-1 border-b border-white/10">
+            <h3 class="font-semibold text-zinc-100 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+              <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+                <circle cx="9" cy="9" r="2"></circle>
+                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
+              </svg>
+              <span>1. Tipo de Gráfico & Entrada</span>
+            </h3>
+            <span class="text-[10px] text-zinc-500 font-mono">1 / 4</span>
           </div>
-          <small style="color: var(--text-muted);">Fusiona pequeños ruidos o píxeles aislados con la región más afín en color.</small>
-        </div>
 
-        <div class="nav-buttons">
-          <button class="btn btn-secondary" onclick="goToStep(1)">← Paleta</button>
-          <button class="btn" onclick="goToStep(3)">Suavizado →</button>
-        </div>
-      </div>
-
-      <!-- STEP 3: Path Smoothing & Bézier Fitting -->
-      <div class="stage-panel" id="stage-panel-3">
-        <h3>3. Suavizado & Curvas Bézier</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted);">
-          Ajuste de polilíneas sobre el grafo planar topológico garantizando bordes compartidos sin huecos.
-        </p>
-
-        <div class="control-group">
-          <label for="smoothness-slider">Nivel de Suavizado:</label>
-          <div class="slider-container">
-            <input type="range" id="smoothness-slider" min="0" max="100" value="50">
-            <span class="range-val" id="smoothness-val">0.50</span>
+          <!-- Dropzone Vacío (cuando no hay imagen cargada) -->
+          <div id="dropzone"
+            class="rounded-xl border-2 border-dashed border-white/15 hover:border-indigo-500/60 bg-zinc-950/40 p-4 flex flex-col items-center justify-center text-center cursor-pointer transition group"
+            data-help-title="Cargar Imagen"
+            data-help-desc="Haz clic para seleccionar o arrastra una imagen PNG, JPG o BMP desde tu computadora."
+            data-help-tip="Si tu imagen tiene fondo transparente, el vector resultante lo preservará automáticamente.">
+            <div
+              class="w-9 h-9 rounded-xl bg-indigo-950/50 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mb-2 group-hover:scale-105 transition">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-linecap="round"
+                  stroke-linejoin="round" stroke-width="2"></path>
+              </svg>
+            </div>
+            <p class="text-xs font-semibold text-zinc-200 pointer-events-none">Haz clic o arrastra una imagen aquí</p>
+            <p class="text-[10px] text-zinc-500 mt-0.5 pointer-events-none">PNG con transparencia, JPG o BMP (hasta 64
+              MB)</p>
           </div>
-        </div>
 
-        <div class="control-group">
-          <label class="checkbox-group">
-            <input type="checkbox" id="detect-corners-checkbox" checked>
-            <span>Detectar y preservar esquinas vivas</span>
-          </label>
-          <small style="color: var(--text-muted);">Mantiene intactos los vértices de esquinas agudas en tipografías y polígonos.</small>
-        </div>
-
-        <div class="control-group">
-          <label for="tolerance-slider">Tolerancia de Curvatura (Nodos):</label>
-          <div class="slider-container">
-            <input type="range" id="tolerance-slider" min="10" max="200" value="75">
-            <span class="range-val" id="tolerance-val">0.75 px</span>
+          <!-- Tarjeta de Imagen Cargada (se muestra al tener imagen) -->
+          <div id="image-info-card"
+            class="hidden relative group rounded-xl border border-white/10 bg-zinc-950/60 p-2.5 flex items-center space-x-3 hover:border-indigo-500/50 transition">
+            <div
+              class="w-11 h-11 rounded-lg overflow-hidden bg-black/40 border border-white/10 shrink-0 flex items-center justify-center relative">
+              <img id="image-thumb-img" alt="Miniatura" class="w-full h-full object-cover">
+            </div>
+            <div class="flex-1 min-w-0">
+              <div id="image-file-name" class="text-xs font-semibold text-zinc-200 truncate">imagen.png</div>
+              <div id="image-file-details" class="text-[10px] text-zinc-400">120 × 120 px</div>
+              <button type="button"
+                class="mt-0.5 text-[10px] font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition"
+                onclick="document.getElementById('file-input').click()">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" stroke-linecap="round"
+                    stroke-linejoin="round" stroke-width="2"></path>
+                </svg>
+                Reemplazar archivo
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="nav-buttons">
-          <button class="btn btn-secondary" onclick="goToStep(2)">← Segmentación</button>
-          <button class="btn" onclick="goToStep(4)">Exportar →</button>
-        </div>
-      </div>
+          <!-- Tipo de Gráfico (Modo Canónico) -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold text-zinc-200">Tipo de Gráfico</label>
+              <span id="mode-badge"
+                class="text-[10px] font-mono text-indigo-400 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-500/20">Bordes
+                Suaves</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5" id="mode-selector-group">
+              <button type="button" id="btn-mode-logo_aa" onclick="setCanonicalMode('logo_aa')"
+                class="mode-card active p-2 rounded-xl border border-indigo-500/50 bg-indigo-950/30 flex flex-col items-center text-center transition hover:border-indigo-400"
+                data-help-title="Bordes Suaves (Recomendado)"
+                data-help-desc="Para logos, dibujos, escaneos e ilustraciones que tienen bordes suavizados por anti-aliasing o compresión digital."
+                data-help-tip="El motor elimina los falsos tonos intermedios logrando curvas nítidas y limpias.">
+                <svg class="w-4 h-4 mb-1 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <circle cx="4" cy="18" r="2"></circle>
+                  <circle cx="20" cy="6" r="2"></circle>
+                  <path d="M6 18c6 0 8-12 12-12"></path>
+                </svg>
+                <span class="text-[11px] font-semibold text-zinc-100 leading-tight">Suavizado</span>
+                <span class="text-[9px] text-zinc-400 mt-0.5">Bordes suaves</span>
+              </button>
+              <button type="button" id="btn-mode-logo_sharp" onclick="setCanonicalMode('logo_sharp')"
+                class="mode-card p-2 rounded-xl border border-white/10 bg-zinc-900/40 hover:bg-white/5 flex flex-col items-center text-center transition hover:border-white/20"
+                data-help-title="Bordes Definidos"
+                data-help-desc="Para pixel art, capturas de pantalla de interfaces, iconos y gráficos con esquinas geométricas puras."
+                data-help-tip="Preserva esquinas y píxeles exactos de 90° sin redondear los bordes.">
+                <svg class="w-4 h-4 mb-1 text-zinc-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <rect width="18" height="18" x="3" y="3" rx="1"></rect>
+                  <path d="M3 9h18"></path>
+                  <path d="M3 15h18"></path>
+                  <path d="M9 3v18"></path>
+                  <path d="M15 3v18"></path>
+                </svg>
+                <span class="text-[11px] font-semibold text-zinc-100 leading-tight">Nítido</span>
+                <span class="text-[9px] text-zinc-400 mt-0.5">Bordes definidos</span>
+              </button>
+              <button type="button" id="btn-mode-photo" onclick="setCanonicalMode('photo')"
+                class="mode-card p-2 rounded-xl border border-white/10 bg-zinc-900/40 hover:bg-white/5 flex flex-col items-center text-center transition hover:border-white/20"
+                data-help-title="Tonos Continuos"
+                data-help-desc="Para fotografías, retratos, paisajes o obras artísticas con degradados de color continuos."
+                data-help-tip="Prioriza curvas orgánicas fluidas y transiciones sutiles de color.">
+                <svg class="w-4 h-4 mb-1 text-zinc-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z">
+                  </path>
+                  <circle cx="12" cy="13" r="3"></circle>
+                </svg>
+                <span class="text-[11px] font-semibold text-zinc-100 leading-tight">Fotografía</span>
+                <span class="text-[9px] text-zinc-400 mt-0.5">Tonos continuos</span>
+              </button>
+            </div>
+          </div>
 
-      <!-- STEP 4: Export -->
-      <div class="stage-panel" id="stage-panel-4">
-        <h3>4. Exportación Vectorial</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted);">
-          El resultado final ha sido optimizado y agrupado por capas cromáticas.
-        </p>
+          <!-- Nivel de Detalle (Baja / Media / Alta) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold text-zinc-200">Nivel de Detalle</label>
+              <span id="quality-badge" class="text-[10px] text-zinc-400">Recomendada</span>
+            </div>
+            <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-white/10 text-xs">
+              <button type="button" id="btn-qual-low" onclick="setQualityPreset('low')"
+                class="flex-1 py-1 rounded-lg text-zinc-400 hover:text-zinc-200 transition font-medium text-center flex items-center justify-center gap-1.5"
+                data-help-title="Detalle Ligero"
+                data-help-desc="Curvas muy simplificadas y gran eliminación de ruido. Produce archivos vectoriales pequeños y ligeros."
+                data-help-tip="Excelente para corte en vinil o estilos gráficos minimalistas.">
+                <svg class="w-3 h-3 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                <span>Baja</span>
+              </button>
+              <button type="button" id="btn-qual-medium" onclick="setQualityPreset('medium')"
+                class="flex-1 py-1 rounded-lg bg-indigo-600 text-white font-medium shadow-sm transition text-center flex items-center justify-center gap-1.5"
+                data-help-title="Detalle Recomendado"
+                data-help-desc="El equilibrio óptimo entre fidelidad a la imagen original y curvas vectoriales limpias."
+                data-help-tip="La opción sugerida para el 90% de los trabajos.">
+                <svg class="w-3 h-3 text-white shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <line x1="6" x2="6" y1="3" y2="21"></line>
+                  <line x1="18" x2="18" y1="3" y2="21"></line>
+                  <line x1="3" x2="9" y1="12" y2="12"></line>
+                  <line x1="15" x2="21" y1="12" y2="12"></line>
+                </svg>
+                <span>Media</span>
+              </button>
+              <button type="button" id="btn-qual-high" onclick="setQualityPreset('high')"
+                class="flex-1 py-1 rounded-lg text-zinc-400 hover:text-zinc-200 transition font-medium text-center flex items-center justify-center gap-1.5"
+                data-help-title="Alto Detalle"
+                data-help-desc="Captura formas diminutas y microdetalles con la mayor fidelidad posible."
+                data-help-tip="Genera más nodos vectoriales. Ideal para ilustraciones detalladas.">
+                <svg class="w-3 h-3 text-cyan-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <path
+                    d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z">
+                  </path>
+                </svg>
+                <span>Alta</span>
+              </button>
+            </div>
+          </div>
+        </section>
 
-        <div class="control-group">
-          <label class="checkbox-group">
-            <input type="checkbox" id="anti-seam-checkbox" checked>
-            <span>Aplicar Trazo Anti-Seam (0.09375pt)</span>
-          </label>
-          <small style="color: var(--text-muted);">Previene grietas de renderizado entre formas vectoriales adyacentes.</small>
-        </div>
+        <div class="h-px bg-white/[0.08]"></div>
 
-        <div class="control-group">
-          <label class="checkbox-group">
-            <input type="checkbox" id="transparent-bg-checkbox">
-            <span>Fondo Transparente</span>
-          </label>
-        </div>
+        <!-- ================= SECCIÓN 2: PALETA DE COLORES ================= -->
+        <section id="sec-palette" class="space-y-4">
+          <div class="flex items-center justify-between pb-1 border-b border-white/10">
+            <h3 class="font-semibold text-zinc-100 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+              <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
+                <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
+                <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
+                <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
+                <path
+                  d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C21.437 6.082 17.207 2 12 2z">
+                </path>
+              </svg>
+              <span>2. Paleta de Colores</span>
+            </h3>
+            <span class="text-[10px] text-zinc-500 font-mono">2 / 4</span>
+          </div>
 
-        <div class="control-group" style="margin-top: 1rem;">
-          <button class="btn" style="width: 100%;" id="btn-download-svg" onclick="downloadSVG()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <!-- Sugerencias de Paleta Rápida -->
+          <div class="space-y-2" id="quick-palettes-container" data-help-title="Sugerencias de Paleta"
+            data-help-desc="Combinaciones calculadas automáticamente. Haz clic en una tarjeta para aplicar esa paleta en 1 paso."
+            data-help-tip="La tarjeta con la estrella es la recomendación óptima calculada por el motor.">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-zinc-200">Sugerencias de Paleta Rápida</span>
+              <span class="text-[10px] text-zinc-500 font-mono">1-clic</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5" id="quick-palettes-grid">
+              <!-- Dynamically populated candidate palette cards -->
+            </div>
+          </div>
+
+          <!-- Control de Cantidad de Colores -->
+          <div class="space-y-2" data-help-title="Cantidad de Colores"
+            data-help-desc="Ajusta la cantidad exacta de tonos que compondrán tu vector final."
+            data-help-tip="Menos colores crean un diseño más plano y limpio; más colores capturan sombras y degradados.">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-zinc-200" for="color-count-slider">Número de Colores</label>
+              <div class="flex items-center space-x-1.5">
+                <button type="button"
+                  class="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center font-bold text-xs leading-none"
+                  onclick="stepColorSlider(-1)">-</button>
+                <span id="color-count-val"
+                  class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2 py-0.5 rounded">8</span>
+                <button type="button"
+                  class="w-5 h-5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center justify-center font-bold text-xs leading-none"
+                  onclick="stepColorSlider(1)">+</button>
+              </div>
+            </div>
+            <input
+              class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+              id="color-count-slider" max="24" min="2" type="range" value="8">
+          </div>
+
+          <!-- Paleta Activa -->
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-medium text-zinc-200">Colores Activos</span>
+              <span class="text-[10px] text-zinc-500">Detección Inteligente</span>
+            </div>
+            <div class="grid grid-cols-1 gap-1.5" id="palette-swatches">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </section>
+
+        <div class="h-px bg-white/[0.08]"></div>
+
+        <!-- ================= SECCIÓN 3: AJUSTES DE DETALLE & CURVAS ================= -->
+        <section id="sec-tuning" class="space-y-4">
+          <div class="flex items-center justify-between pb-1 border-b border-white/10">
+            <h3 class="font-semibold text-zinc-100 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+              <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <line x1="4" x2="4" y1="21" y2="14"></line>
+                <line x1="4" x2="4" y1="10" y2="3"></line>
+                <line x1="12" x2="12" y1="21" y2="12"></line>
+                <line x1="12" x2="12" y1="8" y2="3"></line>
+                <line x1="20" x2="20" y1="21" y2="16"></line>
+                <line x1="20" x2="20" y1="12" y2="3"></line>
+                <line x1="1" x2="7" y1="14" y2="14"></line>
+                <line x1="9" x2="15" y1="8" y2="8"></line>
+                <line x1="17" x2="23" y1="16" y2="16"></line>
+              </svg>
+              <span>3. Ajustes de Detalle & Curvas</span>
+            </h3>
+            <span class="text-[10px] text-zinc-500 font-mono">3 / 4</span>
+          </div>
+
+          <!-- Toggle Limpieza de Bordes Mezclados -->
+          <div class="p-2.5 rounded-xl bg-zinc-950/60 border border-white/10 space-y-1"
+            data-help-title="Limpieza de Bordes Mezclados"
+            data-help-desc="Elimina rebabas y colores falsos generados por el suavizado entre áreas de contraste."
+            data-help-tip="Manténlo encendido para logos e ilustraciones; desactívalo solo para pixel art puro.">
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input type="checkbox" id="reject-aa-checkbox" checked
+                class="w-4 h-4 rounded text-indigo-600 bg-zinc-800 border-white/20 focus:ring-indigo-500 focus:ring-offset-0">
+              <span class="text-xs font-semibold text-zinc-200">Limpieza de bordes mezclados</span>
+            </label>
+            <p class="text-[10px] text-zinc-400 pl-6.5 leading-relaxed">
+              Evita franjas de colores residuales entre formas contiguas.
+            </p>
+          </div>
+
+          <!-- Slider Tamaño Mínimo de Segmento -->
+          <div class="space-y-1.5" data-help-title="Filtro de Ruido y Manchas"
+            data-help-desc="Tamaño mínimo en píxeles que debe tener una zona para ser conservada como pieza independiente."
+            data-help-tip="Sube este valor si la imagen tiene suciedad, granos o artefactos de compresión JPG.">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-zinc-200" for="min-pixels-slider">Filtro de ruido y manchas</label>
+              <span id="min-pixels-val"
+                class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2 py-0.5 rounded">4
+                px</span>
+            </div>
+            <input
+              class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+              id="min-pixels-slider" max="50" min="1" type="range" value="4">
+            <p class="text-[10px] text-zinc-500">Fusiona píxeles aislados o ruido fino con la región contigua.</p>
+          </div>
+
+          <!-- Slider Suavidad de Líneas -->
+          <div class="space-y-1.5" data-help-title="Suavidad de Líneas"
+            data-help-desc="Alisa y redondea suavemente las curvas para evitar líneas temblorosas o escalonadas."
+            data-help-tip="Valores moderados (0.4 - 0.6) dan el mejor equilibrio entre estética y fidelidad.">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-zinc-200" for="smoothness-slider">Suavidad de líneas y
+                contornos</label>
+              <span id="smoothness-val"
+                class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2 py-0.5 rounded">0.50</span>
+            </div>
+            <input
+              class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+              id="smoothness-slider" max="100" min="0" type="range" value="50">
+            <p class="text-[10px] text-zinc-500">Curvas continuas y naturales sin perder la forma original.</p>
+          </div>
+
+          <!-- Preservar Esquinas Vivas -->
+          <div class="p-2.5 rounded-xl bg-zinc-950/60 border border-white/10 space-y-1"
+            data-help-title="Mantener Esquinas Puntiagudas"
+            data-help-desc="Detecta ángulos afilados para que el suavizado no redondee las esquinas rectas."
+            data-help-tip="Crucial para letras tipográficas, polígonos, estrellas y marcos rectos.">
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input type="checkbox" id="detect-corners-checkbox" checked
+                class="w-4 h-4 rounded text-indigo-600 bg-zinc-800 border-white/20 focus:ring-indigo-500 focus:ring-offset-0">
+              <span class="text-xs font-semibold text-zinc-200">Mantener esquinas puntiagudas (≥ 60°)</span>
+            </label>
+            <p class="text-[10px] text-zinc-400 pl-6.5 leading-relaxed">
+              Conserva vértices agudos en tipografías y figuras geométricas.
+            </p>
+          </div>
+
+          <!-- Slider Fidelidad de Curvas -->
+          <div class="space-y-1.5" data-help-title="Fidelidad y Precisión de Curvas"
+            data-help-desc="Determina qué tan apegadas al borde original deben quedar las líneas vectoriales."
+            data-help-tip="Valores bajos siguen el contorno exacto al píxel; valores altos dan trazos más fluidos y livianos.">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium text-zinc-200" for="tolerance-slider">Fidelidad y precisión de
+                curvas</label>
+              <span id="tolerance-val"
+                class="text-xs font-mono font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-500/30 px-2 py-0.5 rounded">0.75
+                px</span>
+            </div>
+            <input
+              class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+              id="tolerance-slider" max="200" min="10" type="range" value="75">
+            <p class="text-[10px] text-zinc-500">Menos distancia crea curvas más fieles; mayor tolerancia genera menos
+              nodos.</p>
+          </div>
+        </section>
+
+        <div class="h-px bg-white/[0.08]"></div>
+
+        <!-- ================= SECCIÓN 4: GUARDAR Y EXPORTAR VECTOR ================= -->
+        <section id="sec-export" class="space-y-4">
+          <div class="flex items-center justify-between pb-1 border-b border-white/10">
+            <h3 class="font-semibold text-zinc-100 text-xs flex items-center gap-1.5 uppercase tracking-wide">
+              <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>4. Guardar y Exportar Vector</span>
+            </h3>
+            <span class="text-[10px] text-zinc-500 font-mono">4 / 4</span>
+          </div>
+
+          <!-- Sellar Uniones entre Colores -->
+          <div class="p-2.5 rounded-xl bg-zinc-950/60 border border-white/10 space-y-1"
+            data-help-title="Sellar Uniones entre Colores"
+            data-help-desc="Añade un micro-borde imperceptible que une las piezas contiguas herméticamente."
+            data-help-tip="Evita que aparezcan líneas blancas de separación al renderizar o imprimir.">
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input type="checkbox" id="anti-seam-checkbox" checked
+                class="w-4 h-4 rounded text-indigo-600 bg-zinc-800 border-white/20 focus:ring-indigo-500 focus:ring-offset-0">
+              <span class="text-xs font-semibold text-zinc-200">Sellar uniones entre colores (Anti-seam)</span>
+            </label>
+            <p class="text-[10px] text-zinc-400 pl-6.5 leading-relaxed">
+              Elimina líneas de separación microscópicas entre formas contiguas.
+            </p>
+          </div>
+
+          <!-- Fondo Transparente -->
+          <div class="p-2.5 rounded-xl bg-zinc-950/60 border border-white/10 space-y-1"
+            data-help-title="Hacer Fondo Transparente"
+            data-help-desc="Elimina el bloque del fondo para que tu diseño quede recortado."
+            data-help-tip="Ideal para logos, stickers o estampados sobre camisetas o fondos oscuros.">
+            <label class="flex items-center space-x-2.5 cursor-pointer">
+              <input type="checkbox" id="transparent-bg-checkbox"
+                class="w-4 h-4 rounded text-indigo-600 bg-zinc-800 border-white/20 focus:ring-indigo-500 focus:ring-offset-0">
+              <span class="text-xs font-semibold text-zinc-200">Hacer fondo transparente</span>
+            </label>
+            <p class="text-[10px] text-zinc-400 pl-6.5 leading-relaxed">
+              Omite el polígono del color de fondo preservando el canal alfa.
+            </p>
+          </div>
+
+          <!-- Selector de Formato Principal -->
+          <div class="space-y-1.5 pt-1">
+            <label for="export-format-select" class="text-xs font-semibold text-zinc-200">Formato de Salida:</label>
+            <select id="export-format-select"
+              class="w-full px-3 py-2 bg-zinc-950 border border-white/15 rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 cursor-pointer">
+              <option value="svg">SVG — Gráficos Vectoriales Web W3C</option>
+              <option value="pdf">PDF — Documento Vectorial de Alta Resolución</option>
+              <option value="eps">EPS — PostScript 3.0 (Illustrator / Corel)</option>
+              <option value="dxf">DXF — AutoCAD 2000 (Corte Láser / CNC / Vinilo)</option>
+            </select>
+          </div>
+
+          <!-- Botón de Descarga Principal -->
+          <button type="button" id="btn-download-main"
+            class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold shadow-md flex items-center justify-center gap-2 transition"
+            onclick="downloadSelectedFormat()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            Descargar SVG
+            <span>Descargar Archivo Vectorial</span>
+          </button>
+
+          <!-- Botonera de Descarga Rápida en 1 Clic (Estilo Google Stitch) -->
+          <div>
+            <div class="text-[10px] font-medium text-zinc-400 mb-1.5">Descarga rápida directa:</div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button type="button"
+                class="py-2 px-3 rounded-lg bg-zinc-950/70 border border-white/10 hover:border-indigo-500/50 hover:bg-white/5 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition"
+                onclick="downloadFormat('svg')">
+                <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                  <polyline points="2 17 12 22 22 17"></polyline>
+                  <polyline points="2 12 12 17 22 12"></polyline>
+                </svg>
+                <span>.SVG</span>
+              </button>
+              <button type="button"
+                class="py-2 px-3 rounded-lg bg-zinc-950/70 border border-white/10 hover:border-indigo-500/50 hover:bg-white/5 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition"
+                onclick="downloadFormat('pdf')">
+                <svg class="w-3.5 h-3.5 text-rose-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" x2="8" y1="13" y2="13"></line>
+                  <line x1="16" x2="8" y1="17" y2="17"></line>
+                </svg>
+                <span>.PDF</span>
+              </button>
+              <button type="button"
+                class="py-2 px-3 rounded-lg bg-zinc-950/70 border border-white/10 hover:border-indigo-500/50 hover:bg-white/5 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition"
+                onclick="downloadFormat('eps')">
+                <svg class="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <path d="m12 19 7-7 3 3-7 7-3-3z"></path>
+                  <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                </svg>
+                <span>.EPS</span>
+              </button>
+              <button type="button"
+                class="py-2 px-3 rounded-lg bg-zinc-950/70 border border-white/10 hover:border-indigo-500/50 hover:bg-white/5 text-zinc-200 text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition"
+                onclick="downloadFormat('dxf')">
+                <svg class="w-3.5 h-3.5 text-cyan-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+                  viewBox="0 0 24 24">
+                  <circle cx="6" cy="6" r="3"></circle>
+                  <circle cx="18" cy="18" r="3"></circle>
+                  <path d="M18 9v3a3 3 0 0 1-3 3H9"></path>
+                </svg>
+                <span>.DXF</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Copiar SVG -->
+          <button type="button"
+            class="w-full py-2 rounded-xl border border-white/10 hover:bg-white/5 text-zinc-300 text-xs font-medium transition"
+            onclick="copySVGToClipboard()">
+            Copiar Código SVG al Portapapeles
+          </button>
+        </section>
+
+      </div>
+
+    </aside>
+    <!-- END: LeftSidebar -->
+
+    <!-- BEGIN: CanvasViewport -->
+    <div class="flex-1 relative flex flex-col overflow-hidden bg-transparency-grid" id="preview-box">
+
+      <!-- Notificación de Alertas / Errores (Estilo Google Stitch) -->
+      <div id="error-banner"
+        class="hidden absolute top-4 left-6 right-6 z-40 bg-rose-950/90 border border-rose-500/30 backdrop-blur-md px-4 py-2.5 rounded-xl shadow-2xl flex items-center justify-between text-xs text-rose-200">
+        <div class="flex items-center space-x-2">
+          <svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2"
+            viewBox="0 0 24 24">
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span id="error-message"></span>
+        </div>
+        <button type="button" onclick="hideError()" class="text-rose-400 hover:text-white p-1 rounded-md transition"
+          title="Cerrar">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <!-- BEGIN: FloatingCanvasToolbar (Dock Flotante Superior Estilo Stitch) -->
+      <div id="editor-toolbar"
+        class="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center bg-zinc-900/90 backdrop-blur-xl border border-white/15 px-3 py-1.5 rounded-2xl shadow-floating-dock space-x-2 text-zinc-300">
+        <!-- Herramientas de Interacción -->
+        <div class="flex items-center space-x-1">
+          <!-- Pan / Navegación -->
+          <button type="button" class="p-1.5 rounded-lg bg-indigo-600 text-white shadow-sm transition" id="tool-pan"
+            onclick="setActiveTool('pan')" data-help-title="Mano / Navegación"
+            data-help-desc="Arrastra el lienzo para moverte libremente por la imagen en cualquier nivel de aumento."
+            data-help-shortcut="Atajo: H o Espacio"
+            data-help-tip="Mantén presionada la barra espaciadora en cualquier momento para desplazarte rápido.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
+              <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"></path>
+              <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+              <path
+                d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15">
+              </path>
+            </svg>
+          </button>
+          <!-- Cubo de Pintura / Recolor -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-recolor" onclick="setActiveTool('recolor')" data-help-title="Cubo de Pintura"
+            data-help-desc="Pinta cualquier área o segmento con el color activo actualmente seleccionado."
+            data-help-shortcut="Atajo: C"
+            data-help-tip="Selecciona un color en la paleta lateral o usa el Cuentagotas para absorber uno.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="m19 11-8-8-8.5 8.5a2.12 2.12 0 0 0 0 3l5 5a2.12 2.12 0 0 0 3 0L19 11Z"></path>
+              <path d="m5 2 5 5"></path>
+              <path d="M2 13h15"></path>
+              <path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.6 2-4 .3 1.4 2 2.4 2 4Z"></path>
+            </svg>
+          </button>
+          <!-- Fusión de Segmentos -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-merge" onclick="setActiveTool('merge')" data-help-title="Fusionar Segmentos"
+            data-help-desc="Une dos áreas contiguas para que formen una sola forma vectorial sólida."
+            data-help-shortcut="Atajo: M o L"
+            data-help-tip="Haz clic en la primera región y luego en la vecina que deseas unir.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </button>
+          <!-- Borrador a Transparente -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-erase" onclick="setActiveTool('erase')" data-help-title="Borrador a Transparente"
+            data-help-desc="Elimina el color de una región convirtiéndola en fondo transparente."
+            data-help-shortcut="Atajo: E"
+            data-help-tip="Ideal para perforar agujeros o limpiar áreas de fondo no deseadas.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path>
+              <path d="M22 21H7"></path>
+              <path d="m5 11 9 9"></path>
+            </svg>
+          </button>
+          <!-- Zap Tool / Destruir Artefacto -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-zap" onclick="setActiveTool('zap')" data-help-title="Herramienta Zap"
+            data-help-desc="Destruye una franja residual o artefacto y redistribuye sus píxeles hacia los vecinos más parecidos."
+            data-help-shortcut="Atajo: Z" data-help-tip="Para eliminar rebabas y franjas en 1 clic.">
+            <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </button>
+          <!-- Lápiz / Pincel Corrector -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-pencil" onclick="setActiveTool('pencil')" data-help-title="Lápiz Corrector"
+            data-help-desc="Dibuja trazos libres para separar formas que se juntaron por error o reconectar trazos cortados."
+            data-help-shortcut="Atajo: P"
+            data-help-tip="Arrastra sobre el lienzo para pintar con precisión milimétrica.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+            </svg>
+          </button>
+          <!-- Selector de Ancho de Lápiz -->
+          <button type="button" id="btn-pencil-width"
+            class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium hover:bg-white/10 text-zinc-400 hover:text-zinc-200 border border-white/10 transition"
+            onclick="cyclePencilWidth()" data-help-title="Grosor del Lápiz"
+            data-help-desc="Alterna el grosor del trazo entre 1px, 2px, 4px y 8px."
+            data-help-shortcut="Clic para alternar"
+            data-help-tip="Usa 1px para separar detalles finos y 4px para rellenar áreas más rápido.">
+            <span id="pencil-width-val">2px</span>
+          </button>
+          <!-- Cuentagotas / Color Picker (Eyedropper) -->
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            id="tool-eyedropper" onclick="setActiveTool('eyedropper')" data-help-title="Cuentagotas"
+            data-help-desc="Haz clic en cualquier punto de la imagen para absorber su color y usarlo con el Cubo o el Lápiz."
+            data-help-shortcut="Atajo: I"
+            data-help-tip="Al absorber el color, vuelves de inmediato a tu herramienta de dibujo anterior.">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="m19 11-4-4"></path>
+              <path d="m17 2-9.6 9.6a2 2 0 0 0-.6 1.4L6 17l4-1a2 2 0 0 0 1.4-.6L21 6a2.8 2.8 0 0 0-4-4Z"></path>
+              <path d="m5 19-3 3"></path>
+            </svg>
+          </button>
+          <!-- Muestra de Color Activo Flotante -->
+          <div class="px-1 py-0.5 rounded-md border border-white/10 bg-black/40 flex items-center gap-1.5 ml-1"
+            data-help-title="Color Activo"
+            data-help-desc="Color actual que se aplicará al usar el Cubo de Pintura o el Lápiz Corrector."
+            data-help-tip="Cámbialo haciendo clic en cualquier muestra de la paleta lateral o con el Cuentagotas.">
+            <div id="active-color-swatch" class="w-4 h-4 rounded shadow-inner border border-white/20"
+              style="background-color: #3b82f6;"></div>
+          </div>
+        </div>
+
+        <div class="h-4 w-px bg-white/10"></div>
+
+        <!-- Deshacer / Rehacer -->
+        <div class="flex items-center space-x-0.5">
+          <button type="button"
+            class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition disabled:opacity-30 disabled:cursor-not-allowed"
+            id="btn-undo" onclick="triggerUndo()" disabled data-help-title="Deshacer"
+            data-help-desc="Revierte el último cambio o edición realizada en el lienzo."
+            data-help-shortcut="Atajo: Ctrl+Z" data-help-tip="Puedes deshacer múltiples ediciones consecutivas.">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M3 7v6h6"></path>
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+            </svg>
+          </button>
+          <button type="button"
+            class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition disabled:opacity-30 disabled:cursor-not-allowed"
+            id="btn-redo" onclick="triggerRedo()" disabled data-help-title="Rehacer"
+            data-help-desc="Vuelve a aplicar la acción que habías deshecho previamente."
+            data-help-shortcut="Atajo: Ctrl+Y" data-help-tip="Útil si deshiciste un trazo o relleno por error.">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M21 7v6h-6"></path>
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+            </svg>
           </button>
         </div>
 
-        <div class="control-group">
-          <button class="btn btn-secondary" style="width: 100%;" onclick="copySVGToClipboard()">
-            Copiar Código SVG
+        <div class="h-4 w-px bg-white/10"></div>
+
+        <!-- Controles de Zoom -->
+        <div class="flex items-center space-x-1">
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            onclick="zoomStep(0.8)" data-help-title="Alejar Zoom"
+            data-help-desc="Reduce la escala de visualización de la imagen." data-help-shortcut="Atajo: Rueda abajo"
+            data-help-tip="También puedes girar la rueda del ratón hacia abajo.">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <line x1="5" x2="19" y1="12" y2="12"></line>
+            </svg>
+          </button>
+          <button type="button"
+            class="px-2 py-0.5 rounded text-xs font-mono font-medium hover:bg-white/10 text-zinc-200 transition"
+            id="zoom-level" onclick="resetZoom()" data-help-title="Nivel de Aumento"
+            data-help-desc="Porcentaje actual de escala respecto al tamaño real."
+            data-help-tip="Haz clic aquí para ajustar la imagen completa a la ventana.">
+            100%
+          </button>
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            onclick="zoomStep(1.25)" data-help-title="Acercar Zoom"
+            data-help-desc="Aumenta el detalle para inspeccionar y editar de cerca."
+            data-help-shortcut="Atajo: Rueda arriba"
+            data-help-tip="También puedes girar la rueda del ratón hacia arriba.">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <line x1="12" x2="12" y1="5" y2="19"></line>
+              <line x1="5" x2="19" y1="12" y2="12"></line>
+            </svg>
+          </button>
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-zinc-200 transition"
+            onclick="resetZoom()" data-help-title="Ajustar a Pantalla"
+            data-help-desc="Centra y escala la imagen para que quepa perfectamente en tu pantalla."
+            data-help-tip="Haz clic en cualquier momento si te perdiste haciendo zoom.">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M15 3h6v6M9 21H3v-6M21 9l-7 7M3 15l7-7"></path>
+            </svg>
           </button>
         </div>
 
-        <div class="nav-buttons">
-          <button class="btn btn-secondary" onclick="goToStep(3)">← Suavizado</button>
+        <div class="h-4 w-px bg-white/10"></div>
+
+        <!-- Segmented Control de Modo de Vista -->
+        <div class="flex items-center bg-zinc-950 p-0.5 rounded-xl border border-white/10 text-xs">
+          <button type="button" class="px-2.5 py-1 rounded-lg text-zinc-400 hover:text-zinc-200 transition font-medium"
+            id="view-mode-orig" onclick="setViewMode('orig')" data-help-title="Vista Original"
+            data-help-desc="Muestra la imagen original de mapa de bits (PNG, JPG) tal como la cargaste."
+            data-help-tip="Útil para comparar el resultado vectorial con la fuente original.">Original</button>
+          <button type="button" class="px-2.5 py-1 rounded-lg text-zinc-400 hover:text-zinc-200 transition font-medium"
+            id="view-mode-seg" onclick="setViewMode('seg')" data-help-title="Vista Segmentada"
+            data-help-desc="Muestra cómo el motor agrupó los colores y regiones antes del trazado de curvas."
+            data-help-tip="Ideal para ver y retocar piezas con el Cubo de Pintura, Zap o Lápiz.">Segmentado</button>
+          <button type="button" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium shadow-sm transition"
+            id="view-mode-vec" onclick="setViewMode('vec')" data-help-title="Vista Vectorial (SVG)"
+            data-help-desc="Muestra las curvas vectoriales finales calculadas con precisión sub-píxel."
+            data-help-tip="Haz zoom todo lo que desees sin perder nitidez jamás.">Vector SVG</button>
         </div>
       </div>
+      <!-- END: FloatingCanvasToolbar -->
 
-    </div>
-
-    <!-- Right Workspace Area -->
-    <div class="workspace">
-      <!-- Error Notification Banner -->
-      <div id="error-banner" class="error-banner" style="display: none;">
-        <span class="error-icon">⚠️</span>
-        <span id="error-message" class="error-text"></span>
-        <button type="button" class="error-close" onclick="hideError()" title="Cerrar">✕</button>
-      </div>
-
-      <!-- Floating Editor Toolbar (Vector Magic Style) -->
-      <div id="editor-toolbar" class="editor-toolbar" style="display: none;">
-        <div class="tool-group">
-          <button type="button" class="tool-btn active" id="tool-pan" title="Mover lienzo (Pan) - Arrastrar con ratón o mantener Barra Espaciadora" onclick="setActiveTool('pan')">✋</button>
-          <button type="button" class="tool-btn" id="tool-recolor" title="Cubo de Pintura - Clic para recolorear el segmento con el color activo" onclick="setActiveTool('recolor')">🪣</button>
-          <button type="button" class="tool-btn" id="tool-merge" title="Fusionar Segmentos - Clic en el primer segmento y luego en el segundo" onclick="setActiveTool('merge')">🔗</button>
-          <button type="button" class="tool-btn" id="tool-erase" title="Borrador a Transparente - Clic para eliminar un segmento" onclick="setActiveTool('erase')">🧹</button>
-        </div>
-        <div class="toolbar-divider"></div>
-        <div class="tool-group">
-          <button type="button" class="tool-btn" id="btn-undo" title="Deshacer (Ctrl+Z)" onclick="triggerUndo()" disabled>↶</button>
-          <button type="button" class="tool-btn" id="btn-redo" title="Rehacer (Ctrl+Y)" onclick="triggerRedo()" disabled>↷</button>
-        </div>
-        <div class="toolbar-divider"></div>
-        <div class="tool-group zoom-group">
-          <button type="button" class="tool-btn" title="Alejar (-)" onclick="zoomStep(0.8)">−</button>
-          <span id="zoom-level" class="zoom-text">100%</span>
-          <button type="button" class="tool-btn" title="Acercar (+)" onclick="zoomStep(1.25)">+</button>
-          <button type="button" class="tool-btn" title="Restablecer tamaño (100%)" onclick="resetZoom()">⟲</button>
-        </div>
-        <div class="toolbar-divider"></div>
-        <div class="active-color-box" title="Color activo para Cubo de Pintura. Haz clic en las muestras del panel izquierdo para cambiar">
-          <div id="active-color-swatch" class="active-color-swatch" style="background-color: #3b82f6;"></div>
-        </div>
-      </div>
-
-      <!-- Mode View Toggle -->
-      <div style="position: absolute; top: 1.5rem; right: 1.5rem; display: flex; gap: 0.5rem; z-index: 10;">
-        <button class="btn-sample" id="view-mode-orig" onclick="setViewMode('orig')">Original</button>
-        <button class="btn-sample" id="view-mode-seg" onclick="setViewMode('seg')">Segmentado</button>
-        <button class="btn-sample" id="view-mode-vec" onclick="setViewMode('vec')" style="background: var(--accent); color: white;">Vector SVG</button>
-      </div>
-
-      <div class="preview-container" id="preview-box">
-        <p id="placeholder-text" style="color: var(--text-muted); font-size: 0.95rem;">
-          Carga una imagen para comenzar el asistente de vectorización
+      <!-- BEGIN: CanvasMainArea (Lienzo Central Interactivo) -->
+      <div class="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
+        <p id="placeholder-text" class="text-zinc-500 text-sm select-none">
+          Carga una imagen para comenzar a vectorizar
         </p>
         <div id="viewport-stage" class="viewport-stage">
-          <img id="img-preview" style="display: none;" draggable="false" />
+          <img id="img-preview" style="display: none;" draggable="false" alt="Preview raster" />
           <div id="svg-preview" style="display: none;"></div>
+          <canvas id="pencil-overlay-canvas"
+            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
         </div>
       </div>
+      <!-- END: CanvasMainArea -->
 
-      <!-- Editor Status HUD -->
-      <div id="editor-hud" class="editor-hud" style="display: none;">
-        <span id="hud-tool-hint">Modo: Navegación (arrastra para mover, rueda para zoom)</span>
-        <span id="hud-coords" style="font-family: monospace; opacity: 0.85;">X: 0, Y: 0</span>
-      </div>
+      <!-- Velo de cómputo sobre el lienzo -->
+      <div id="canvas-busy-veil"
+        class="hidden absolute inset-0 bg-zinc-950/40 backdrop-blur-[2px] z-10 pointer-events-none transition"></div>
 
-      <!-- Real-time Progress Bar Notification -->
-      <div class="progress-overlay" id="progress-box">
-        <span id="progress-label" style="font-size: 0.85rem; font-weight: 600;">Procesando...</span>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" id="progress-bar"></div>
+      <!-- BEGIN: BottomStatusBar (Barra de Coordenadas y Navegación) -->
+      <div class="absolute bottom-4 left-6 z-20" id="editor-hud">
+        <div
+          class="flex items-center space-x-3 bg-zinc-950/85 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10 text-xs text-zinc-400 font-mono shadow-lg">
+          <div class="flex items-center space-x-1.5 text-zinc-300">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"
+              viewBox="0 0 24 24">
+              <path d="M12 2v20M2 12h20"></path>
+            </svg>
+            <span id="hud-tool-hint">Modo: Navegación</span>
+          </div>
+          <span class="text-zinc-600">•</span>
+          <span class="hidden sm:inline text-zinc-400">Espacio + Arrastrar</span>
+          <span class="text-zinc-600">•</span>
+          <span class="text-zinc-300 font-medium" id="hud-coords">X: 0, Y: 0</span>
+          <span class="text-zinc-600">•</span>
+          <span class="text-indigo-400" id="hud-zoom">Zoom: 100%</span>
         </div>
       </div>
+      <!-- END: BottomStatusBar -->
+
+      <!-- BEGIN: BottomRightProgressWidget (Estado de Vectorización) -->
+      <div class="hidden absolute bottom-4 right-6 z-30" id="progress-box">
+        <div
+          class="bg-zinc-950/90 backdrop-blur-xl border border-white/15 px-4 py-3 rounded-2xl shadow-floating-dock flex flex-col space-y-2 min-w-[280px]">
+          <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center space-x-2">
+              <!-- Micro Spinner brillante -->
+              <svg class="animate-spin h-3.5 w-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  fill="currentColor"></path>
+              </svg>
+              <span class="font-medium text-zinc-200" id="progress-label">Procesando...</span>
+            </div>
+            <span class="font-mono font-semibold text-indigo-400 text-xs" id="progress-percent">0%</span>
+          </div>
+          <!-- Barra de Progreso Dinámica -->
+          <div class="w-full bg-zinc-800/80 h-1.5 rounded-full overflow-hidden">
+            <div
+              class="bg-gradient-to-r from-indigo-500 via-brand-400 to-cyan-400 h-full rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+              id="progress-bar-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+      <!-- END: BottomRightProgressWidget -->
+
     </div>
+    <!-- END: CanvasViewport -->
+
   </main>
+  <!-- END: MainContentArea -->
+
+  <!-- BEGIN: RichTooltip (Micro-Guía Interactiva) -->
+  <div id="rich-tooltip"
+    class="pointer-events-none fixed z-50 max-w-xs rounded-xl bg-zinc-900/95 p-3 text-xs text-zinc-200 shadow-2xl border border-white/15 backdrop-blur-xl transition-all duration-150 opacity-0 scale-95 origin-top-left hidden"
+    style="left: 0px; top: 0px;">
+    <div class="flex items-center justify-between gap-2 mb-1">
+      <span id="rich-tooltip-title" class="font-semibold text-zinc-100 flex items-center gap-1.5"></span>
+      <span id="rich-tooltip-badge"
+        class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-500/30"></span>
+    </div>
+    <p id="rich-tooltip-desc" class="text-zinc-300 text-[11px] leading-relaxed mb-1.5"></p>
+    <div id="rich-tooltip-tip-container"
+      class="pt-1.5 border-t border-white/10 flex items-start gap-1.5 text-[10px] text-amber-300/90 leading-tight">
+      <svg class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2"
+        viewBox="0 0 24 24">
+        <path
+          d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
+        </path>
+      </svg>
+      <span id="rich-tooltip-tip"></span>
+    </div>
+  </div>
+  <!-- END: RichTooltip -->
 
   <script src="app.js"></script>
 </body>
+
 </html>

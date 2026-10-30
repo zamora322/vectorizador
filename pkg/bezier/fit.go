@@ -23,6 +23,23 @@ func FitCurve(points []topology.Point, maxError float64) []CubicBezier {
 		}}
 	}
 
+	if n >= 4 && points[0].Distance(points[n-1]) < 1e-4 {
+		mid := n / 2
+		tHatCenter := computeCenterTangent(points, mid)
+		tHatCenterNeg := topology.Point{X: -tHatCenter.X, Y: -tHatCenter.Y}
+
+		// Tangent through seam at 0 / n-1
+		vIn := topology.Point{X: points[n-1].X - points[n-2].X, Y: points[n-1].Y - points[n-2].Y}
+		vOut := topology.Point{X: points[1].X - points[0].X, Y: points[1].Y - points[0].Y}
+		tHatSeam := normalize(topology.Point{X: vIn.X + vOut.X, Y: vIn.Y + vOut.Y})
+		tHatSeamNeg := topology.Point{X: -tHatSeam.X, Y: -tHatSeam.Y}
+
+		var curves []CubicBezier
+		fitCubic(points, 0, mid, tHatSeam, tHatCenter, maxError, &curves)
+		fitCubic(points, mid, n-1, tHatCenterNeg, tHatSeamNeg, maxError, &curves)
+		return curves
+	}
+
 	tHat1 := computeLeftTangent(points, 0)
 	tHat2 := computeRightTangent(points, n-1)
 

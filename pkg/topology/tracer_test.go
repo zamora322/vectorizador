@@ -35,17 +35,18 @@ func TestTraceTopology(t *testing.T) {
 		t.Fatalf("Expected boundary edges, got 0")
 	}
 
-	// Verify that the inner region has a closed loop
-	var foundSquareLoop bool
-	for _, loops := range graph.RegionLoops {
-		for _, l := range loops {
-			if len(l.Edges) > 0 {
-				foundSquareLoop = true
+	// Verify that all region loops are strictly closed cycles
+	for regID, loops := range graph.RegionLoops {
+		for i, l := range loops {
+			if len(l.Edges) == 0 {
+				t.Errorf("Region %d loop %d has 0 edges", regID, i)
+				continue
+			}
+			p0 := l.Edges[0].Points[0]
+			pEnd := l.Edges[len(l.Edges)-1].Points[len(l.Edges[len(l.Edges)-1].Points)-1]
+			if p0.Distance(pEnd) > 1e-4 {
+				t.Errorf("Region %d loop %d is NOT closed: starts at %v, ends at %v", regID, i, p0, pEnd)
 			}
 		}
-	}
-
-	if !foundSquareLoop {
-		t.Errorf("Expected to find closed region loop for square")
 	}
 }

@@ -2,7 +2,9 @@ package segmentation
 
 import (
 	"image"
-	"image/color"
+	"math"
+	"runtime"
+	"sync"
 
 	"github.com/zamora322/vectorizador/pkg/palette"
 )
@@ -55,19 +57,8 @@ func SegmentImage(img image.Image, pal palette.Palette, minPixels int, rejectAA 
 	w, h := bounds.Dx(), bounds.Dy()
 	sm := NewSegmentMap(w, h, pal)
 
-	// Step 1: Quantize each pixel to its nearest palette color index
-	colorGrid := make([]int, w*h)
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			r, g, b, a := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-			if a < 128*257 {
-				colorGrid[y*w+x] = len(pal) - 1
-				continue
-			}
-			rgb := palette.RGB{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8)}
-			colorGrid[y*w+x] = pal.NearestIndex(rgb)
-		}
-	}
+	// Step 1: Quantize each pixel to its nearest palette color index using multi-core parallel execution
+	colorGrid := QuantizeImageColors(img, pal)
 
 	// Step 2: Connected Component Labeling using Disjoint Set Union-Find (4-connectivity)
 	parent := make([]int, w*h)
@@ -145,11 +136,22 @@ func (sm *SegmentMap) rebuildSegments(colorGrid []int) {
 
 	for id, count := range counts {
 		colorIdx := colorGrid[id]
-		sm.Segments[id] = &Segment{
-			ID:         id,
-			ColorIndex: colorIdx,
-			Color:      sm.Palette[colorIdx],
-			PixelCount: count,
+		if colorIdx < 0 {
+			sm.Segments[id] = &Segment{
+				ID:          id,
+				ColorIndex:  -1,
+				Color:       palette.RGB{R: 0, G: 0, B: 0},
+				PixelCount:  count,
+				Transparent: true,
+			}
+		} else {
+			sm.Segments[id] = &Segment{
+				ID:          id,
+				ColorIndex:  colorIdx,
+				Color:       sm.Palette[colorIdx],
+				PixelCount:  count,
+				Transparent: false,
+			}
 		}
 	}
 }
@@ -208,6 +210,10 @@ func (sm *SegmentMap) filterSmallSegments(minPixels int) {
 			if !exists {
 				continue
 			}
+			// Do not merge an opaque segment into transparency
+			if !seg.Transparent && nSeg.Transparent {
+				continue
+			}
 			dist := palette.DeltaERGB(seg.Color, nSeg.Color)
 			if dist < bestDist {
 				bestDist = dist
@@ -223,33 +229,145 @@ func (sm *SegmentMap) filterSmallSegments(minPixels int) {
 	}
 }
 
-// ToRGBA generates an image.RGBA visual representation of the segmented regions.
+// QuantizeImageColors maps each pixel of img to the nearest palette color index.
+// Optimized using multi-core parallel processing, direct Pix memory access, and an exact L1 color cache.
+func QuantizeImageColors(img image.Image, pal palette.Palette) []int {
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	colorGrid := make([]int, w*h)
+
+	// Precompute Lab coordinates for palette once
+	palLabs := make([]palette.Lab, len(pal))
+	for i, c := range pal {
+		palLabs[i] = palette.RGBToLab(c)
+	}
+
+	rgbaImg, isRGBA := img.(*image.RGBA)
+	nrgbaImg, isNRGBA := img.(*image.NRGBA)
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > h {
+		workers = h
+	}
+
+	rowsPerWorker := (h + workers - 1) / workers
+	var wg sync.WaitGroup
+
+	for worker := 0; worker < workers; worker++ {
+		startY := worker * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if endY > h {
+			endY = h
+		}
+		if startY >= h {
+			break
+		}
+
+		wg.Add(1)
+		go func(sy, ey int) {
+			defer wg.Done()
+
+			// Thread-local direct-mapped cache (4096 entries)
+			// Exact 24-bit RGB check ensures 100% mathematical precision with zero loss
+			type cacheEntry struct {
+				rgb   palette.RGB
+				idx   int
+				valid bool
+			}
+			cache := make([]cacheEntry, 4096)
+
+			for y := sy; y < ey; y++ {
+				rowOffset := y * w
+				imgY := bounds.Min.Y + y
+				for x := 0; x < w; x++ {
+					imgX := bounds.Min.X + x
+					var r, g, b, a uint32
+
+					if isRGBA {
+						off := rgbaImg.PixOffset(imgX, imgY)
+						r = uint32(rgbaImg.Pix[off]) << 8
+						g = uint32(rgbaImg.Pix[off+1]) << 8
+						b = uint32(rgbaImg.Pix[off+2]) << 8
+						a = uint32(rgbaImg.Pix[off+3]) << 8
+					} else if isNRGBA {
+						off := nrgbaImg.PixOffset(imgX, imgY)
+						r = uint32(nrgbaImg.Pix[off]) << 8
+						g = uint32(nrgbaImg.Pix[off+1]) << 8
+						b = uint32(nrgbaImg.Pix[off+2]) << 8
+						a = uint32(nrgbaImg.Pix[off+3]) << 8
+					} else {
+						r, g, b, a = img.At(imgX, imgY).RGBA()
+					}
+
+					if a < 128*257 {
+						colorGrid[rowOffset+x] = -1
+						continue
+					}
+
+					var red, green, blue uint8
+					if a > 0 && a < 65535 {
+						red = uint8((r * 65535 / a) >> 8)
+						green = uint8((g * 65535 / a) >> 8)
+						blue = uint8((b * 65535 / a) >> 8)
+					} else {
+						red = uint8(r >> 8)
+						green = uint8(g >> 8)
+						blue = uint8(b >> 8)
+					}
+
+					rgb := palette.RGB{R: red, G: green, B: blue}
+
+					// Fast direct hash index
+					hKey := (uint32(red)*31 + uint32(green)*17 + uint32(blue)) & 4095
+					if cache[hKey].valid && cache[hKey].rgb == rgb {
+						colorGrid[rowOffset+x] = cache[hKey].idx
+						continue
+					}
+
+					// Exact CIE L*a*b* delta E calculation
+					lab := palette.RGBToLab(rgb)
+					bestDist := math.MaxFloat64
+					bestIdx := 0
+					for pi, pLab := range palLabs {
+						d := palette.DeltaE(lab, pLab)
+						if d < bestDist {
+							bestDist = d
+							bestIdx = pi
+						}
+					}
+
+					cache[hKey] = cacheEntry{rgb: rgb, idx: bestIdx, valid: true}
+					colorGrid[rowOffset+x] = bestIdx
+				}
+			}
+		}(startY, endY)
+	}
+
+	wg.Wait()
+	return colorGrid
+}
+
+// ToRGBA generates an image.RGBA visual representation of the segmented regions with native alpha.
+// Optimized using direct contiguous byte slice writes without virtual function overhead.
 func (sm *SegmentMap) ToRGBA() *image.RGBA {
 	out := image.NewRGBA(image.Rect(0, 0, sm.Width, sm.Height))
-	for y := 0; y < sm.Height; y++ {
-		for x := 0; x < sm.Width; x++ {
-			segID := sm.At(x, y)
-			seg, ok := sm.Segments[segID]
-			if !ok {
-				continue
-			}
-			if seg.Transparent {
-				// Checkerboard pattern for transparent regions
-				isEven := ((x/8)+(y/8))%2 == 0
-				var v uint8 = 200
-				if isEven {
-					v = 240
-				}
-				out.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
-			} else {
-				out.Set(x, y, color.RGBA{
-					R: seg.Color.R,
-					G: seg.Color.G,
-					B: seg.Color.B,
-					A: 255,
-				})
-			}
+	pix := out.Pix
+	total := sm.Width * sm.Height
+
+	for i := 0; i < total; i++ {
+		segID := sm.Grid[i]
+		seg, ok := sm.Segments[segID]
+		if !ok || seg.Transparent {
+			continue // newly allocated bytes in image.NewRGBA are already 0,0,0,0
 		}
+		off := i * 4
+		pix[off] = seg.Color.R
+		pix[off+1] = seg.Color.G
+		pix[off+2] = seg.Color.B
+		pix[off+3] = 255
 	}
 	return out
 }
