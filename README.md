@@ -2,13 +2,12 @@
 
 > **Motor de vectorización de imágenes raster (PNG, JPG, BMP) a SVG de alta precisión en Go puro.**  
 
-[Repositorio en GitHub](https://github.com/zamora322/vectorizador)
-
-[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![Pure Go](https://img.shields.io/badge/Dependencies-Pure%20Go%20%2F%20No%20CGo-blue)]()
-[![No Node](https://img.shields.io/badge/Web%20UI-Zero%20npm%20%2F%20Vanilla%20JS-F7DF1E?logo=javascript)]()
-[![License](https://img.shields.io/badge/License-MIT-green.svg)]()
-[![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen)]()
+[![GitHub](https://img.shields.io/badge/GitHub-zamora322%2Fvectorizador-181717?logo=github)](https://github.com/zamora322/vectorizador)
+[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Pure Go](https://img.shields.io/badge/Dependencies-Pure_Go_--_Zero_CGo-blue)](#características-principales)
+[![Web UI](https://img.shields.io/badge/Web_UI-Zero_npm_--_Vanilla_JS-F7DF1E?logo=javascript&logoColor=black&labelColor=27272a)](#modo-de-uso-asistente-web-studio-wizard)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-100%25_Passing-brightgreen)](#batería-de-pruebas-y-rendimiento)
 
 ---
 
@@ -50,6 +49,7 @@
   - **Borrador a Transparente (Erase):** Conversión de segmentos a fondo alfa instantáneo.
   - **Zap Tool (Destruir Artefacto):** Algoritmo que destruye un segmento de ruido y redistribuye sus píxeles hacia los vecinos perimetrales más afines en espacio $\text{CIE } L^*a^*b^*$ ($\Delta E$).
   - **Lápiz / Pincel Corrector:** Trazo libre interactivo en tiempo real sobre el lienzo con rasterizador de disco y selector de grosor dinámico (`1px`, `2px`, `4px`, `8px`) para separar formas o conectar trazos cortados.
+  - **Cuentagotas (Eyedropper):** Muestreo sub-píxel y absorción instantánea de cualquier color con tecla `I` para pintar con el Cubo o Lápiz.
 - **Selector de Paletas Rápidas:** Fila de tarjetas de 1-clic con combinaciones candidatas precalculadas ($K \in [2, 3, 4, 6, 8, 12, 16]$), muestras visuales de color y distintivo `★ Óptima` sincronizado bidireccionalmente con el deslizador numérico.
 - **Rendimiento Multi-Core Ultra-Rápido (160x en Cuantización, 9.2x Global):**
   - Cuantización cromática paralela por franjas horizontales entre todos los núcleos del CPU (`runtime.GOMAXPROCS`).
@@ -183,6 +183,7 @@ Durante la visualización de la imagen, dispones de una **barra flotante de herr
 | **Zap Tool (Destruir)** | `Z` | Haz clic en un segmento de ruido/artefacto para destruirlo y redistribuirlo a los vecinos más afines en Lab $\Delta E$. |
 | **Lápiz / Pincel** | `P` | Dibuja trazos libres interactivos con previsualización en vivo para separar regiones o conectar trazos cortados. |
 | **Grosor del Lápiz** | Clic en pill `2px` | Alterna dinámicamente entre `1px`, `2px`, `4px` y `8px` de grosor de trazo. |
+| **Cuentagotas** | `I` | Haz clic en cualquier parte de la imagen para absorber su color y activarlo para el Cubo o Lápiz. |
 | **Deshacer** | `Ctrl+Z` | Revierte la última acción de edición utilizando el historial en RAM del motor en Go. |
 | **Rehacer** | `Ctrl+Y` | Re-aplica la acción deshecha. |
 | **Zoom Continuo** | Rueda del ratón / Botones `+`, `-`, `Reset` | Zoom centrado exactamente en la posición del puntero del ratón (de 5% a 3000%). |
