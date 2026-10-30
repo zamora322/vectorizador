@@ -127,7 +127,9 @@ Uno de los desafíos clásicos en vectorización de gráficos es la pérdida del
 ### Compilación desde el Código Fuente
 ```bash
 # Clonar o situarse en el repositorio
-cd /home/zamora322/Documentos/Code/vectorizador
+git clone https://github.com/zamora322/vectorizador
+
+cd vectorizador
 
 # Descargar módulos mínimos
 go mod tidy
