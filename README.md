@@ -2,12 +2,11 @@
 
 > **Motor de vectorización de imágenes raster (PNG, JPG, BMP) a SVG de alta precisión en Go puro.**  
 
-[![GitHub](https://img.shields.io/badge/GitHub-zamora322%2Fvectorizador-181717?logo=github)](https://github.com/zamora322/vectorizador)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![Pure Go](https://img.shields.io/badge/Dependencies-Pure_Go_--_Zero_CGo-blue)](#características-principales)
-[![Web UI](https://img.shields.io/badge/Web_UI-Zero_npm_--_Vanilla_JS-F7DF1E?logo=javascript&logoColor=black&labelColor=27272a)](#modo-de-uso-asistente-web-studio-wizard)
+[![Pure Go](https://img.shields.io/badge/Dependencies-Pure_Go-blue)](#características-principales)
+[![Web UI](https://img.shields.io/badge/Web_UI-Vanilla_JS-F7DF1E)](#modo-de-uso-asistente-web-studio-wizard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-100%25_Passing-brightgreen)](#batería-de-pruebas-y-rendimiento)
+[![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)](#batería-de-pruebas-y-rendimiento)
 
 ---
 
